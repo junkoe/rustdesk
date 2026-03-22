@@ -1,0 +1,248 @@
+# fred-build.yml
+# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
+#
+# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
+# its peer ID on first launch.
+#
+# Trigger: push to master, or manually via Actions → "Run workflow"
+# Runner:  windows-2022 (free for public repos)
+# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
+
+name: Build Fred the IT Guy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  RUST_VERSION:   "1.75.0"
+  FLUTTER_VERSION: "3.24.5"
+  LLVM_VERSION:   "15.0.6"
+  VCPKG_COMMIT:   "120deac3062162151622ca4860575a33844ba10b"
+  PORTAL_URL:     "https://help.fredtheitguy.com"
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout fork with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # ── Cache: vcpkg binary cache ──────────────────────────────────────────────
+      - name: Cache vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: C:\Users\runneradmin\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ env.VCPKG_COMMIT }}-x64-windows-static
+          restore-keys: vcpkg-${{ env.VCPKG_COMMIT }}-
+
+      # ── Cache: Rust registry + build cache ────────────────────────────────────
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-
+
+      # ── Rust ──────────────────────────────────────────────────────────────────
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: x86_64-pc-windows-msvc
+
+      # ── LLVM ──────────────────────────────────────────────────────────────────
+      - name: Install LLVM ${{ env.LLVM_VERSION }}
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
+          directory: C:\llvm
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=C:\llvm\bin" >> $env:GITHUB_ENV
+
+      # ── Flutter ───────────────────────────────────────────────────────────────
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Disable Flutter analytics
+        run: flutter config --no-analytics
+
+      - name: Flutter precache (Windows)
+        run: flutter precache --windows
+
+      # ── Custom Flutter engine (required for RustDesk) ─────────────────────────
+      - name: Download RustDesk custom Flutter engine
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip" `
+            -OutFile "$env:TEMP\rd-engine.zip" `
+            -UseBasicParsing
+
+      - name: Install custom Flutter engine
+        run: |
+          $flutterRoot  = (Get-Command flutter).Source | Split-Path | Split-Path
+          $engineDest   = "$flutterRoot\bin\cache\artifacts\engine\windows-x64-release"
+          New-Item -ItemType Directory -Force -Path $engineDest | Out-Null
+          Expand-Archive -Path "$env:TEMP\rd-engine.zip" -DestinationPath "$env:TEMP\rd-engine" -Force
+          Copy-Item -Path "$env:TEMP\rd-engine\*" -Destination $engineDest -Force
+          Write-Host "Custom engine installed to $engineDest"
+
+      # ── Flutter dropdown-menu patch (3.24.4/3.24.5) ───────────────────────────
+      - name: Apply Flutter dropdown patch
+        run: |
+          $patch = ".github\patches\flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if (Test-Path $patch) {
+            $flutterRoot = (Get-Command flutter).Source | Split-Path | Split-Path
+            Copy-Item $patch $flutterRoot
+            Push-Location $flutterRoot
+            git apply "flutter_3.24.4_dropdown_menu_enableFilter.diff" 2>$null || true
+            Pop-Location
+            Write-Host "Flutter patch applied"
+          } else {
+            Write-Host "Patch file not found — skipping"
+          }
+
+      # ── vcpkg ─────────────────────────────────────────────────────────────────
+      - name: Setup vcpkg at pinned commit
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          vcpkgDirectory: C:\vcpkg
+
+      - name: Install vcpkg dependencies (x64-windows-static)
+        run: |
+          C:\vcpkg\vcpkg install `
+            --triplet x64-windows-static `
+            --x-install-root="C:\vcpkg\installed"
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+
+      # ── Apply Fred registration patch ─────────────────────────────────────────
+      - name: Create src/fred_register.rs
+        shell: pwsh
+        run: |
+          $code = @"
+          // fred_register.rs — Fred IT Guy client registration
+          // Fires once on startup: sends this device's RustDesk peer ID to the
+          // support portal so the admin can connect directly.
+
+          const PORTAL_URL: &str = "${{ env.PORTAL_URL }}";
+
+          pub fn register() {
+              std::thread::spawn(|| {
+                  // Wait for RustDesk to establish its peer ID via the relay.
+                  std::thread::sleep(std::time::Duration::from_secs(10));
+
+                  let id = hbb_common::config::Config::get_id();
+                  if id.is_empty() {
+                      return;
+                  }
+
+                  let machine_name = std::env::var("COMPUTERNAME")
+                      .unwrap_or_else(|_| "Unknown".to_string());
+
+                  // Sanitise — prevent JSON injection
+                  let id_clean   = id.replace('"', "");
+                  let name_clean = machine_name.replace('"', "").replace('\\', "");
+
+                  let body = format!(
+                      r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
+                      id_clean, name_clean
+                  );
+
+                  // Retry up to 3 times with a 60-second gap
+                  for attempt in 0..3u8 {
+                      match ureq::post(&format!("{}/api/register", PORTAL_URL))
+                          .set("Content-Type", "application/json")
+                          .timeout(std::time::Duration::from_secs(10))
+                          .send_string(&body)
+                      {
+                          Ok(resp) if resp.status() < 400 => return,
+                          _ => {
+                              if attempt < 2 {
+                                  std::thread::sleep(std::time::Duration::from_secs(60));
+                              }
+                          }
+                      }
+                  }
+              });
+          }
+          "@
+          $code | Out-File "src\fred_register.rs" -Encoding utf8
+          Write-Host "Created src/fred_register.rs"
+
+      - name: Add ureq to Cargo.toml
+        shell: pwsh
+        run: |
+          $cargo = Get-Content "Cargo.toml" -Raw
+          if ($cargo -notmatch '"ureq"') {
+            $cargo = $cargo -replace '(\[dependencies\])', "[dependencies]`nureq = { version = `"2`", features = [`"tls`"] }"
+            $cargo | Set-Content "Cargo.toml" -Encoding utf8
+            Write-Host "Added ureq to Cargo.toml"
+          } else {
+            Write-Host "ureq already present"
+          }
+
+      - name: Inject fred_register into src/main.rs
+        shell: pwsh
+        run: |
+          $mainRs = Get-Content "src\main.rs" -Raw
+          if ($mainRs -notmatch 'fred_register') {
+            $mainRs = "mod fred_register;`n" + $mainRs
+            $mainRs = $mainRs -replace `
+              '((?:async\s+)?fn main\(\)[^{]*\{)', `
+              '$1' + "`n    fred_register::register();"
+            $mainRs | Set-Content "src\main.rs" -Encoding utf8
+            Write-Host "Injected fred_register::register() into src/main.rs"
+          } else {
+            Write-Host "main.rs already patched"
+          }
+
+      # ── Python build deps ─────────────────────────────────────────────────────
+      - name: Install Python build dependencies
+        run: python -m pip install --quiet requests argparse
+
+      # ── Build ─────────────────────────────────────────────────────────────────
+      - name: Build RustDesk (Flutter + Rust)
+        run: python .\build.py --portable --hwcodec --flutter --vram
+        env:
+          VCPKG_ROOT: C:\vcpkg
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+          LIBCLANG_PATH: C:\llvm\bin
+
+      # ── Collect and rename output ─────────────────────────────────────────────
+      - name: Collect output exe
+        shell: pwsh
+        run: |
+          $portableExe = Get-ChildItem "target\release\rustdesk-portable-packer.exe" -ErrorAction SilentlyContinue
+          if ($portableExe) {
+            Copy-Item $portableExe.FullName "Fred_the_IT_Guy.exe" -Force
+            Write-Host "Output: Fred_the_IT_Guy.exe ($([math]::Round($portableExe.Length/1MB, 1)) MB)"
+          } else {
+            Write-Error "rustdesk-portable-packer.exe not found — check build logs"
+          }
+
+      # ── Upload artifact ───────────────────────────────────────────────────────
+      - name: Upload Fred_the_IT_Guy.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fred_the_IT_Guy
+          path: Fred_the_IT_Guy.exe
+          retention-days: 90
+          if-no-files-found: error
