@@ -205,9 +205,8 @@ jobs:
           $mainRs = Get-Content "src\main.rs" -Raw
           if ($mainRs -notmatch 'fred_register') {
             $mainRs = "mod fred_register;`n" + $mainRs
-            $mainRs = $mainRs -replace `
-              '((?:async\s+)?fn main\(\)[^{]*\{)', `
-              '$1' + "`n    fred_register::register();"
+            $repl = '$1' + "`n    fred_register::register();"
+            $mainRs = $mainRs -replace '((?:async\s+)?fn main\(\)[^{]*\{)', $repl
             $mainRs | Set-Content "src\main.rs" -Encoding utf8
             Write-Host "Injected fred_register::register() into src/main.rs"
           } else {
