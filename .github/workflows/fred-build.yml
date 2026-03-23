@@ -252,12 +252,12 @@ jobs:
       - name: Collect output exe
         shell: pwsh
         run: |
-          $portableExe = Get-ChildItem "target\release\rustdesk-portable-packer.exe" -ErrorAction SilentlyContinue
+          $portableExe = Get-ChildItem "rustdesk_portable.exe" -ErrorAction SilentlyContinue
           if ($portableExe) {
             Copy-Item $portableExe.FullName "Fred_the_IT_Guy.exe" -Force
             Write-Host "Output: Fred_the_IT_Guy.exe ($([math]::Round($portableExe.Length/1MB, 1)) MB)"
           } else {
-            Write-Error "rustdesk-portable-packer.exe not found — check build logs"
+            Write-Error "rustdesk_portable.exe not found — check build logs"
           }
 
       # ── Upload artifact ───────────────────────────────────────────────────────
