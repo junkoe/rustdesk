@@ -50,6 +50,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
 
       # ── LLVM ──────────────────────────────────────────────────────────────────
       - name: Install LLVM ${{ env.LLVM_VERSION }}
