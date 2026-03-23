@@ -221,6 +221,10 @@ jobs:
           Write-Host "Relay server baked in: $env:RUSTDESK_HOST"
 
       # ── Generate bridge_generated.rs (required, missing from fork) ────────────
+      - name: Flutter pub get (required before bridge codegen)
+        run: flutter pub get
+        working-directory: flutter
+
       - name: Generate flutter_rust_bridge
         shell: pwsh
         env:
