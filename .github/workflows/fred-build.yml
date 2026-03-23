@@ -127,15 +127,29 @@ jobs:
       # ── Apply Fred registration patch ─────────────────────────────────────────
       - name: Create src/fred_register.rs
         shell: pwsh
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
         run: |
           $code = @"
           // fred_register.rs — Fred IT Guy client registration
-          // Fires once on startup: sends this device's RustDesk peer ID to the
-          // support portal so the admin can connect directly.
+          // Fires once on startup: forces relay server and phones home with peer ID.
 
           const PORTAL_URL: &str = "${{ env.PORTAL_URL }}";
+          const RELAY_HOST: &str = "$env:RUSTDESK_HOST";
+          const RELAY_KEY:  &str = "$env:RUSTDESK_KEY";
 
           pub fn register() {
+              // EXE_RENDEZVOUS_SERVER is priority #1 in RustDesk's server selection —
+              // it overrides custom-rendezvous-server, cloud-pushed servers, and all fallbacks.
+              *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = RELAY_HOST.to_owned();
+              if !RELAY_KEY.is_empty() {
+                  hbb_common::config::Config::set_option(
+                      "key".to_owned(),
+                      RELAY_KEY.to_owned(),
+                  );
+              }
+
               std::thread::spawn(|| {
                   // Wait for RustDesk to establish its peer ID via the relay.
                   std::thread::sleep(std::time::Duration::from_secs(10));
