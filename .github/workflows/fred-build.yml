@@ -1,13 +1,3 @@
-# fred-build.yml
-# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
-#
-# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
-# its peer ID on first launch.
-#
-# Trigger: push to master, or manually via Actions → "Run workflow"
-# Runner:  windows-2022 (free for public repos)
-# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
-
 name: Build Fred the IT Guy
 
 on:
@@ -25,7 +15,7 @@ env:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────
@@ -212,6 +202,34 @@ jobs:
           } else {
             Write-Host "main.rs already patched"
           }
+
+      # ── Patch relay server into source (compiled in, no external file needed) ──
+      - name: Patch relay server config
+        shell: pwsh
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
+        run: |
+          $f = "libs\hbb_common\src\config.rs"
+          $c = Get-Content $f -Raw
+          # Replace hardcoded rs-xx.rustdesk.com server references
+          $c = $c -replace '"rs-[a-z0-9-]+\.rustdesk\.com(?::\d+)?"', "`"$env:RUSTDESK_HOST`""
+          # Replace RENDEZVOUS_SERVERS array if present
+          $c = $c -replace '(?s)(pub const RENDEZVOUS_SERVERS\s*:\s*&\[&str\]\s*=\s*&\[)[^\]]*(\])', "`$1`n    `"$env:RUSTDESK_HOST`",`n`$2"
+          $c | Set-Content $f -Encoding utf8
+          Write-Host "Relay server baked in: $env:RUSTDESK_HOST"
+
+      # ── Generate bridge_generated.rs (required, missing from fork) ────────────
+      - name: Generate flutter_rust_bridge
+        shell: pwsh
+        env:
+          LIBCLANG_PATH: C:\llvm\bin
+        run: |
+          cargo install flutter_rust_bridge_codegen --version 1.80.1
+          flutter_rust_bridge_codegen `
+            --rust-input src/flutter_ffi.rs `
+            --dart-output flutter/lib/generated_bridge.dart
+          Write-Host "bridge_generated.rs created"
 
       # ── Python build deps ─────────────────────────────────────────────────────
       - name: Install Python build dependencies
