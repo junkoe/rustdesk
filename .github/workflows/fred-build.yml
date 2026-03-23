@@ -252,12 +252,31 @@ jobs:
       - name: Collect output exe
         shell: pwsh
         run: |
-          $portableExe = Get-ChildItem "rustdesk_portable.exe" -ErrorAction SilentlyContinue
-          if ($portableExe) {
-            Copy-Item $portableExe.FullName "Fred_the_IT_Guy.exe" -Force
-            Write-Host "Output: Fred_the_IT_Guy.exe ($([math]::Round($portableExe.Length/1MB, 1)) MB)"
+          Write-Host "=== Build outputs ==="
+          Get-ChildItem "*.exe" -ErrorAction SilentlyContinue | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+          # Prefer portable; fall back to installer (both contain the full app)
+          $src = $null
+          $kind = ""
+
+          $portable = Get-ChildItem "rustdesk_portable.exe" -ErrorAction SilentlyContinue
+          if ($portable) {
+            $src  = $portable.FullName
+            $kind = "portable"
           } else {
-            Write-Error "rustdesk_portable.exe not found — check build logs"
+            $installer = Get-ChildItem "rustdesk-*-install.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($installer) {
+              $src  = $installer.FullName
+              $kind = "installer (portable build failed — deploy with /S for silent install)"
+            }
+          }
+
+          if ($src) {
+            Copy-Item $src "Fred_the_IT_Guy.exe" -Force
+            $mb = [math]::Round((Get-Item "Fred_the_IT_Guy.exe").Length/1MB, 1)
+            Write-Host "Collected Fred_the_IT_Guy.exe ($mb MB) [$kind]"
+          } else {
+            Write-Error "No output exe found — check build logs above"
           }
 
       # ── Upload artifact ───────────────────────────────────────────────────────
