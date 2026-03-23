@@ -213,12 +213,24 @@ jobs:
         run: |
           $f = "libs\hbb_common\src\config.rs"
           $c = Get-Content $f -Raw
-          # Replace hardcoded rs-xx.rustdesk.com server references
-          $c = $c -replace '"rs-[a-z0-9-]+\.rustdesk\.com(?::\d+)?"', "`"$env:RUSTDESK_HOST`""
-          # Replace RENDEZVOUS_SERVERS array if present
+          $before = $c
+
+          # 1. Replace any *.rustdesk.com string literal (covers rs-ny, rs-sg, etc.)
+          $c = $c -replace '"[^"]*\.rustdesk\.com(?::\d+)?"', "`"$env:RUSTDESK_HOST`""
+
+          # 2. Replace RENDEZVOUS_SERVERS array wholesale if present
           $c = $c -replace '(?s)(pub const RENDEZVOUS_SERVERS\s*:\s*&\[&str\]\s*=\s*&\[)[^\]]*(\])', "`$1`n    `"$env:RUSTDESK_HOST`",`n`$2"
+
           $c | Set-Content $f -Encoding utf8
-          Write-Host "Relay server baked in: $env:RUSTDESK_HOST"
+
+          # Verify something actually changed
+          if ($c -eq $before) {
+            Write-Warning "WARNING: config.rs was not modified — no rustdesk.com strings found. Dumping server-related lines:"
+            Select-String -Path $f -Pattern "rendezvous|RENDEZVOUS|relay|server" | Select-Object -First 20 | ForEach-Object { Write-Host $_.Line }
+            exit 1
+          } else {
+            Write-Host "Relay server baked in: $env:RUSTDESK_HOST"
+          }
 
       # ── Generate bridge_generated.rs (required, missing from fork) ────────────
       - name: Flutter pub get (required before bridge codegen)
