@@ -225,31 +225,26 @@ jobs:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
         run: |
-          $f = "libs\hbb_common\src\config.rs"
+          $h = $env:RUSTDESK_HOST
+
+          # THE CORRECT INJECTION POINT (confirmed from source research):
+          # initialize() in src/flutter_ffi.rs calls load_custom_client() in src/common.rs
+          # at Flutter app startup. This is the actual entry path for the Flutter build —
+          # NOT fn main() in src/main.rs which is a dead test stub for Flutter builds.
+          # Setting EXE_RENDEZVOUS_SERVER here is priority #1 — overrides everything.
+          $f = "src\common.rs"
           $c = Get-Content $f -Raw
           $before = $c
-          $h = $env:RUSTDESK_HOST
-          $h_port = if ($h -match ':') { $h } else { "${h}:21116" }
-
-          # Inject early return at the top of get_rendezvous_servers() — this is in librustdesk
-          # (the shared library the Flutter app calls into), so it applies to the actual running app.
-          # Priority chain in config.rs is irrelevant — we return before any of it runs.
-          $inject_servers = 'return vec!["' + $h + '".to_string()]; // Fred IT Guy'
-          $c = $c -replace '(pub fn get_rendezvous_servers\(\) -> Vec<String> \{)', ('$1' + "`n        " + $inject_servers)
-
-          # Same for get_rendezvous_server() — handles the single-server path
-          $inject_server = 'return "' + $h_port + '".to_string(); // Fred IT Guy'
-          $c = $c -replace '(pub fn get_rendezvous_server\(\) -> String \{)', ('$1' + "`n        " + $inject_server)
-
+          $inject = '*hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "' + $h + '".to_owned(); // Fred IT Guy'
+          $c = $c -replace '(pub fn load_custom_client\(\)[^{]*\{)', ('$1' + "`n    " + $inject)
           $c | Set-Content $f -Encoding utf8
 
-          # Verify both functions were patched
           if ($c -eq $before) {
-            Write-Error "config.rs was not modified — function signatures may have changed"
-            Select-String -Path $f -Pattern "fn get_rendezvous_server" | ForEach-Object { Write-Host $_.Line }
+            Write-Error "src/common.rs not modified — load_custom_client() signature may have changed"
+            Select-String -Path $f -Pattern "load_custom_client" | Select-Object -First 5 | ForEach-Object { Write-Host $_.Line }
             exit 1
           } else {
-            Write-Host "Relay server hardcoded in get_rendezvous_servers/get_rendezvous_server: $h"
+            Write-Host "EXE_RENDEZVOUS_SERVER injected into load_custom_client(): $h"
           }
 
       # ── Generate bridge_generated.rs (required, missing from fork) ────────────
