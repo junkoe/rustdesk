@@ -124,74 +124,7 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
 
-      # ── Apply Fred registration patch ─────────────────────────────────────────
-      - name: Create src/fred_register.rs
-        shell: pwsh
-        env:
-          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
-          RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
-        run: |
-          $code = @"
-          // fred_register.rs — Fred IT Guy client registration
-          // Fires once on startup: forces relay server and phones home with peer ID.
-
-          const PORTAL_URL: &str = "${{ env.PORTAL_URL }}";
-          const RELAY_HOST: &str = "$env:RUSTDESK_HOST";
-          const RELAY_KEY:  &str = "$env:RUSTDESK_KEY";
-
-          pub fn register() {
-              // EXE_RENDEZVOUS_SERVER is priority #1 in RustDesk's server selection —
-              // it overrides custom-rendezvous-server, cloud-pushed servers, and all fallbacks.
-              *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = RELAY_HOST.to_owned();
-              if !RELAY_KEY.is_empty() {
-                  hbb_common::config::Config::set_option(
-                      "key".to_owned(),
-                      RELAY_KEY.to_owned(),
-                  );
-              }
-
-              std::thread::spawn(|| {
-                  // Wait for RustDesk to establish its peer ID via the relay.
-                  std::thread::sleep(std::time::Duration::from_secs(10));
-
-                  let id = hbb_common::config::Config::get_id();
-                  if id.is_empty() {
-                      return;
-                  }
-
-                  let machine_name = std::env::var("COMPUTERNAME")
-                      .unwrap_or_else(|_| "Unknown".to_string());
-
-                  // Sanitise — prevent JSON injection
-                  let id_clean   = id.replace('"', "");
-                  let name_clean = machine_name.replace('"', "").replace('\\', "");
-
-                  let body = format!(
-                      r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
-                      id_clean, name_clean
-                  );
-
-                  // Retry up to 3 times with a 60-second gap
-                  for attempt in 0..3u8 {
-                      match ureq::post(&format!("{}/api/register", PORTAL_URL))
-                          .set("Content-Type", "application/json")
-                          .timeout(std::time::Duration::from_secs(10))
-                          .send_string(&body)
-                      {
-                          Ok(resp) if resp.status() < 400 => return,
-                          _ => {
-                              if attempt < 2 {
-                                  std::thread::sleep(std::time::Duration::from_secs(60));
-                              }
-                          }
-                      }
-                  }
-              });
-          }
-          "@
-          $code | Out-File "src\fred_register.rs" -Encoding utf8
-          Write-Host "Created src/fred_register.rs"
-
+      # ── Add ureq HTTP client (used for phone-home registration) ─────────────────
       - name: Add ureq to Cargo.toml
         shell: pwsh
         run: |
@@ -204,48 +137,82 @@ jobs:
             Write-Host "ureq already present"
           }
 
-      - name: Inject fred_register into src/main.rs
-        shell: pwsh
-        run: |
-          $mainRs = Get-Content "src\main.rs" -Raw
-          if ($mainRs -notmatch 'fred_register') {
-            $mainRs = "mod fred_register;`n" + $mainRs
-            $repl = '$1' + "`n    fred_register::register();"
-            $mainRs = $mainRs -replace '((?:async\s+)?fn main\(\)[^{]*\{)', $repl
-            $mainRs | Set-Content "src\main.rs" -Encoding utf8
-            Write-Host "Injected fred_register::register() into src/main.rs"
-          } else {
-            Write-Host "main.rs already patched"
-          }
-
-      # ── Patch relay server into source (compiled in, no external file needed) ──
-      - name: Patch relay server config
+      # ── Patch src/common.rs: relay server + phone-home ────────────────────────
+      # WHY common.rs and not main.rs:
+      #   Flutter builds compile src/ into librustdesk.dll (library crate).
+      #   src/main.rs is a dead binary stub — fn main() never runs in a Flutter build.
+      #   The real Flutter startup path is: C++ WinMain → Dart → initialize() in
+      #   flutter_ffi.rs → load_custom_client() in common.rs.  Injecting here is the
+      #   only place that is guaranteed to execute.
+      - name: Patch src/common.rs (relay server + phone-home registration)
         shell: pwsh
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
         run: |
-          $h = $env:RUSTDESK_HOST
-
-          # THE CORRECT INJECTION POINT (confirmed from source research):
-          # initialize() in src/flutter_ffi.rs calls load_custom_client() in src/common.rs
-          # at Flutter app startup. This is the actual entry path for the Flutter build —
-          # NOT fn main() in src/main.rs which is a dead test stub for Flutter builds.
-          # Setting EXE_RENDEZVOUS_SERVER here is priority #1 — overrides everything.
-          $f = "src\common.rs"
-          $c = Get-Content $f -Raw
+          $h      = $env:RUSTDESK_HOST
+          $k      = $env:RUSTDESK_KEY
+          $portal = "${{ env.PORTAL_URL }}"
+          $f      = "src\common.rs"
+          $c      = Get-Content $f -Raw
           $before = $c
-          $inject = '*hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "' + $h + '".to_owned(); // Fred IT Guy'
-          $c = $c -replace '(pub fn load_custom_client\(\)[^{]*\{)', ('$1' + "`n    " + $inject)
+
+          # Rust block injected as the first lines of load_custom_client().
+          # PowerShell expands $h, $k, $portal at workflow runtime; everything
+          # else is literal Rust source.
+          $inject = @"
+
+              // ── Fred IT Guy: compiled-in relay server ────────────────────────────
+              // EXE_RENDEZVOUS_SERVER is priority #1 in get_rendezvous_servers() —
+              // it overrides custom-rendezvous-server, cloud push, and all fallbacks.
+              *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "$h".to_owned();
+              if !"$k".is_empty() {
+                  hbb_common::config::Config::set_option("key".to_owned(), "$k".to_owned());
+              }
+              // ── Fred IT Guy: phone-home registration ─────────────────────────────
+              // Spawns a background thread; waits 10 s for the peer ID to appear
+              // (requires hbbs to be reachable), then POSTs to the portal once.
+              std::thread::spawn(|| {
+                  std::thread::sleep(std::time::Duration::from_secs(10));
+                  let id = hbb_common::config::Config::get_id();
+                  if id.is_empty() { return; }
+                  let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Unknown".to_owned());
+                  let id_c   = id.replace('"', "");
+                  let name_c = machine.replace('"', "").replace('\\', "");
+                  let body   = format!(
+                      r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
+                      id_c, name_c
+                  );
+                  for attempt in 0..3u8 {
+                      if let Ok(resp) = ureq::post(&format!("{}/api/register", "$portal"))
+                          .set("Content-Type", "application/json")
+                          .timeout(std::time::Duration::from_secs(10))
+                          .send_string(&body) {
+                          if resp.status() < 400 { return; }
+                      }
+                      if attempt < 2 { std::thread::sleep(std::time::Duration::from_secs(60)); }
+                  }
+              });
+          "@
+
+          # Use String.Replace() rather than -replace regex to avoid
+          # backreference escaping issues with the multi-line $inject.
+          $target = [regex]::Match($c, 'pub fn load_custom_client\(\)[^{]*\{').Value
+          if (!$target) {
+            Write-Error "load_custom_client() not found in $f — function may have been renamed"
+            Select-String -Path $f -Pattern "load_custom_client" | Select-Object -First 5 | % { Write-Host $_.Line }
+            exit 1
+          }
+          $c = $c.Replace($target, $target + $inject)
           $c | Set-Content $f -Encoding utf8
 
           if ($c -eq $before) {
-            Write-Error "src/common.rs not modified — load_custom_client() signature may have changed"
-            Select-String -Path $f -Pattern "load_custom_client" | Select-Object -First 5 | ForEach-Object { Write-Host $_.Line }
+            Write-Error "src/common.rs was not modified — String.Replace() found no match"
             exit 1
-          } else {
-            Write-Host "EXE_RENDEZVOUS_SERVER injected into load_custom_client(): $h"
           }
+          Write-Host "Patched load_custom_client() in src/common.rs"
+          Write-Host "  EXE_RENDEZVOUS_SERVER = $h"
+          Write-Host "  Portal = $portal"
 
       # ── Generate bridge_generated.rs (required, missing from fork) ────────────
       - name: Flutter pub get (required before bridge codegen)
