@@ -228,22 +228,28 @@ jobs:
           $f = "libs\hbb_common\src\config.rs"
           $c = Get-Content $f -Raw
           $before = $c
+          $h = $env:RUSTDESK_HOST
+          $h_port = if ($h -match ':') { $h } else { "${h}:21116" }
 
-          # 1. Replace any *.rustdesk.com string literal (covers rs-ny, rs-sg, etc.)
-          $c = $c -replace '"[^"]*\.rustdesk\.com(?::\d+)?"', "`"$env:RUSTDESK_HOST`""
+          # Inject early return at the top of get_rendezvous_servers() — this is in librustdesk
+          # (the shared library the Flutter app calls into), so it applies to the actual running app.
+          # Priority chain in config.rs is irrelevant — we return before any of it runs.
+          $inject_servers = 'return vec!["' + $h + '".to_string()]; // Fred IT Guy'
+          $c = $c -replace '(pub fn get_rendezvous_servers\(\) -> Vec<String> \{)', ('$1' + "`n        " + $inject_servers)
 
-          # 2. Replace RENDEZVOUS_SERVERS array wholesale if present
-          $c = $c -replace '(?s)(pub const RENDEZVOUS_SERVERS\s*:\s*&\[&str\]\s*=\s*&\[)[^\]]*(\])', "`$1`n    `"$env:RUSTDESK_HOST`",`n`$2"
+          # Same for get_rendezvous_server() — handles the single-server path
+          $inject_server = 'return "' + $h_port + '".to_string(); // Fred IT Guy'
+          $c = $c -replace '(pub fn get_rendezvous_server\(\) -> String \{)', ('$1' + "`n        " + $inject_server)
 
           $c | Set-Content $f -Encoding utf8
 
-          # Verify something actually changed
+          # Verify both functions were patched
           if ($c -eq $before) {
-            Write-Warning "WARNING: config.rs was not modified — no rustdesk.com strings found. Dumping server-related lines:"
-            Select-String -Path $f -Pattern "rendezvous|RENDEZVOUS|relay|server" | Select-Object -First 20 | ForEach-Object { Write-Host $_.Line }
+            Write-Error "config.rs was not modified — function signatures may have changed"
+            Select-String -Path $f -Pattern "fn get_rendezvous_server" | ForEach-Object { Write-Host $_.Line }
             exit 1
           } else {
-            Write-Host "Relay server baked in: $env:RUSTDESK_HOST"
+            Write-Host "Relay server hardcoded in get_rendezvous_servers/get_rendezvous_server: $h"
           }
 
       # ── Generate bridge_generated.rs (required, missing from fork) ────────────
