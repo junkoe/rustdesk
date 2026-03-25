@@ -256,11 +256,13 @@ jobs:
 
           # 2. Exe metadata (right-click → Properties)
           $f = "flutter\windows\runner\Runner.rc"
-          $c = Get-Content $f -Raw
+          $bytes = [System.IO.File]::ReadAllBytes($f)
+          $enc = if ($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { [System.Text.Encoding]::Unicode } else { [System.Text.Encoding]::UTF8 }
+          $c = $enc.GetString($bytes)
           $c = $c -replace 'VALUE "FileDescription", "RustDesk[^"]*"', "VALUE `"FileDescription`", `"$name`""
           $c = $c -replace 'VALUE "ProductName", "RustDesk[^"]*"',     "VALUE `"ProductName`", `"$name`""
-          $c | Set-Content $f -Encoding utf8
-          Write-Host "Runner.rc: product name → $name"
+          [System.IO.File]::WriteAllText($f, $c, $enc)
+          Write-Host "Runner.rc: product name → $name (encoding: $($enc.EncodingName))"
 
           # 3. Remove the 'set up your own server' promo link
           #    - Redirect the URL so clicking it goes to the portal instead
