@@ -14,6 +14,7 @@ env:
   # ── Branding (change these to rebrand for another deployment) ──────────────
   APP_NAME:        "Fred the IT Guy"   # exe metadata / about screen
   APP_TITLE:       "Fred IT Support"   # window title bar
+  SUPPORT_PHONE:   "(602) 695-9825"    # shown in the info panel on the right side
   # Optional icon: commit a file to clients/rustdesk-build/app_icon.ico and it
   # will automatically replace the default RustDesk icon in the build.
 
@@ -178,11 +179,6 @@ jobs:
               }
               // ── Fred IT Guy: remote admin can push config changes when connected ──
               hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
-              // ── Fred IT Guy: hide Security + Network tabs from settings ───────────
-              // Prevents end user from changing server or password via settings UI.
-              // General/Display/About tabs remain accessible.
-              hbb_common::config::Config::set_option("hide-security-setting".to_owned(), "Y".to_owned());
-              hbb_common::config::Config::set_option("hide-network-setting".to_owned(), "Y".to_owned());
               // ── Fred IT Guy: permanent password + both-mode verification ──────────
               // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
               // End user can still accept one-time sessions via the prompt.
@@ -326,20 +322,97 @@ jobs:
       - name: Apply restrictions (incoming-only, lock settings)
         shell: pwsh
         run: |
-          # 1. Hide "Control Remote Desktop" right panel — incoming connections only
+          # 1. Replace right panel with branded info panel
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
-          (Get-Content $f -Raw) -replace 'if \(!isIncomingOnly\) Expanded\(child: buildRightPane\(context\)\)', 'if (false) Expanded(child: buildRightPane(context))' |
-            Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: right panel hidden"
+          $c = Get-Content $f -Raw
+          $panel = @"
+Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Color(0xFFF8FAFC),
+                  border: Border(left: BorderSide(color: Color(0xFFE2E8F0))),
+                ),
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.headset_mic_outlined, color: Color(0xFF6366F1), size: 20),
+                      SizedBox(width: 8),
+                      Text('Fred the IT Guy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B))),
+                    ]),
+                    SizedBox(height: 20),
+                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),
+                    SizedBox(height: 12),
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+                    ]),
+                    SizedBox(height: 6),
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+                    ]),
+                    SizedBox(height: 6),
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+                    ]),
+                    SizedBox(height: 6),
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
+                    ]),
+                    SizedBox(height: 20),
+                    Divider(color: Color(0xFFE2E8F0)),
+                    SizedBox(height: 12),
+                    Text('Need help? Call us:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),
+                    SizedBox(height: 8),
+                    Row(children: [
+                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),
+                      SizedBox(width: 8),
+                      Text('${{ env.SUPPORT_PHONE }}', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
+                    ]),
+                  ],
+                ),
+              ),
+            )
+"@
+          $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
+          $c | Set-Content $f -Encoding utf8
+          Write-Host "desktop_home_page.dart: right panel replaced with info panel"
 
-          # 2. Settings button — leave visible (Security + Network tabs hidden via config)
-          Write-Host "desktop_tab_page.dart: settings button left visible"
-
-          # 3. Lock the password edit button
+          # 2. Lock the password edit button
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           (Get-Content $f -Raw) -replace 'if \(!bind\.isDisableSettings\(\)\)', 'if (false)' |
             Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: password edit hidden"
+
+          # 3. Settings tabs — keep only General and About
+          # Hides Security, Network, Display, Printer so end user can't change permissions or server
+          $f = "flutter\lib\desktop\pages\desktop_setting_page.dart"
+          $c = Get-Content $f -Raw
+          $before = $c
+          $startMark = 'static final List<SettingsTabKey> tabKeys = ['
+          $startIdx  = $c.IndexOf($startMark)
+          if ($startIdx -ge 0) {
+            $endIdx = $c.IndexOf('];', $startIdx)
+            if ($endIdx -ge 0) {
+              $newList = $startMark + "`n    SettingsTabKey.general,`n    SettingsTabKey.about,`n  ];"
+              $c = $c.Substring(0, $startIdx) + $newList + $c.Substring($endIdx + 2)
+            }
+          }
+          $c | Set-Content $f -Encoding utf8
+          if ($c -eq $before) {
+            Write-Host "Warning: tabKeys pattern not matched in desktop_setting_page.dart — tabs unchanged"
+          } else {
+            Write-Host "desktop_setting_page.dart: settings tabs reduced to General + About"
+          }
 
       # ── Window size ───────────────────────────────────────────────────────────
       - name: Shrink default window width
