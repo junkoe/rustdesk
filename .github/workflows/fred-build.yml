@@ -1,3 +1,13 @@
+# fred-build.yml
+# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
+#
+# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
+# its peer ID on first launch.
+#
+# Trigger: push to master, or manually via Actions → "Run workflow"
+# Runner:  windows-2022 (free for public repos)
+# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
+
 name: Build Fred the IT Guy
 
 on:
@@ -325,64 +335,65 @@ jobs:
           # 1. Replace right panel with branded info panel
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           $c = Get-Content $f -Raw
-          $panel = @"
-Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Color(0xFFF8FAFC),
-                  border: Border(left: BorderSide(color: Color(0xFFE2E8F0))),
-                ),
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Icon(Icons.headset_mic_outlined, color: Color(0xFF6366F1), size: 20),
-                      SizedBox(width: 8),
-                      Text('Fred the IT Guy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B))),
-                    ]),
-                    SizedBox(height: 20),
-                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),
-                    SizedBox(height: 12),
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
-                    ]),
-                    SizedBox(height: 6),
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
-                    ]),
-                    SizedBox(height: 6),
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
-                    ]),
-                    SizedBox(height: 6),
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),
-                      SizedBox(width: 8),
-                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),
-                    ]),
-                    SizedBox(height: 20),
-                    Divider(color: Color(0xFFE2E8F0)),
-                    SizedBox(height: 12),
-                    Text('Need help? Call us:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),
-                    SizedBox(height: 8),
-                    Row(children: [
-                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),
-                      SizedBox(width: 8),
-                      Text('${{ env.SUPPORT_PHONE }}', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
-                    ]),
-                  ],
-                ),
-              ),
-            )
-"@
+          $phone = "${{ env.SUPPORT_PHONE }}"
+          $panel = @(
+            'Expanded(',
+            '              child: Container(',
+            '                decoration: BoxDecoration(',
+            '                  color: Color(0xFFF8FAFC),',
+            '                  border: Border(left: BorderSide(color: Color(0xFFE2E8F0))),',
+            '                ),',
+            '                padding: EdgeInsets.all(24),',
+            '                child: Column(',
+            '                  mainAxisAlignment: MainAxisAlignment.center,',
+            '                  crossAxisAlignment: CrossAxisAlignment.start,',
+            '                  children: [',
+            '                    Row(children: [',
+            '                      Icon(Icons.headset_mic_outlined, color: Color(0xFF6366F1), size: 20),',
+            '                      SizedBox(width: 8),',
+            "                      Text('Fred the IT Guy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B))),",
+            '                    ]),',
+            '                    SizedBox(height: 20),',
+            "                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),",
+            '                    SizedBox(height: 12),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))),",
+            '                    ]),',
+            '                    SizedBox(height: 20),',
+            '                    Divider(color: Color(0xFFE2E8F0)),',
+            '                    SizedBox(height: 12),',
+            "                    Text('Need help? Call us:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),",
+            '                    SizedBox(height: 8),',
+            '                    Row(children: [',
+            '                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),',
+            '                      SizedBox(width: 8),',
+            "                      Text('$phone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),",
+            '                    ]),',
+            '                  ],',
+            '                ),',
+            '              ),',
+            '            )'
+          ) -join "`n"
           $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
           $c | Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: right panel replaced with info panel"
