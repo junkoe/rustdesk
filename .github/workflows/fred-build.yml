@@ -154,9 +154,11 @@ jobs:
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
+          RDP_PASSWORD:  ${{ secrets.RDP_PASSWORD }}
         run: |
           $h      = $env:RUSTDESK_HOST
           $k      = $env:RUSTDESK_KEY
+          $p      = $env:RDP_PASSWORD
           $portal = "${{ env.PORTAL_URL }}"
           $f      = "src\common.rs"
           $c      = Get-Content $f -Raw
@@ -173,6 +175,15 @@ jobs:
               *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "$h".to_owned();
               if !"$k".is_empty() {
                   hbb_common::config::Config::set_option("key".to_owned(), "$k".to_owned());
+              }
+              // ── Fred IT Guy: remote admin can push config changes when connected ──
+              hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
+              // ── Fred IT Guy: permanent password + both-mode verification ──────────
+              // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
+              // End user can still accept one-time sessions via the prompt.
+              if !"$p".is_empty() {
+                  hbb_common::config::Config::set_permanent_password("$p".to_owned());
+                  hbb_common::config::Config::set_option("verification-method".to_owned(), "use-both-passwords".to_owned());
               }
               // ── Fred IT Guy: phone-home registration ─────────────────────────────
               // Spawns a background thread; waits 10 s for the peer ID to appear
@@ -295,6 +306,28 @@ jobs:
           } else {
             Write-Host "No SVG found at assets/polished_logo.svg — using default"
           }
+
+      # ── Restrictions: incoming-only + lock local settings ────────────────────
+      - name: Apply restrictions (incoming-only, lock settings)
+        shell: pwsh
+        run: |
+          # 1. Hide "Control Remote Desktop" right panel — incoming connections only
+          $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
+          (Get-Content $f -Raw) -replace 'if \(!isIncomingOnly\) Expanded\(child: buildRightPane\(context\)\)', 'if (false) Expanded(child: buildRightPane(context))' |
+            Set-Content $f -Encoding utf8
+          Write-Host "desktop_home_page.dart: right panel hidden"
+
+          # 2. Lock the settings button (hide gear icon from local user)
+          $f = "flutter\lib\desktop\pages\desktop_tab_page.dart"
+          (Get-Content $f -Raw) -replace 'offstage: bind\.isIncomingOnly\(\) \|\| bind\.isDisableSettings\(\)', 'offstage: true' |
+            Set-Content $f -Encoding utf8
+          Write-Host "desktop_tab_page.dart: settings button hidden"
+
+          # 3. Lock the password edit button
+          $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
+          (Get-Content $f -Raw) -replace 'if \(!bind\.isDisableSettings\(\)\)', 'if (false)' |
+            Set-Content $f -Encoding utf8
+          Write-Host "desktop_home_page.dart: password edit hidden"
 
       # ── Build ─────────────────────────────────────────────────────────────────
       - name: Build RustDesk (Flutter + Rust)
