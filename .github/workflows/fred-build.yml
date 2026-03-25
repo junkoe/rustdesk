@@ -6,11 +6,16 @@ on:
   workflow_dispatch:
 
 env:
-  RUST_VERSION:   "1.75.0"
+  RUST_VERSION:    "1.75.0"
   FLUTTER_VERSION: "3.24.5"
-  LLVM_VERSION:   "15.0.6"
-  VCPKG_COMMIT:   "120deac3062162151622ca4860575a33844ba10b"
-  PORTAL_URL:     "https://help.fredtheitguy.com"
+  LLVM_VERSION:    "15.0.6"
+  VCPKG_COMMIT:    "120deac3062162151622ca4860575a33844ba10b"
+  PORTAL_URL:      "https://help.fredtheitguy.com"
+  # ── Branding (change these to rebrand for another deployment) ──────────────
+  APP_NAME:        "Fred the IT Guy"   # exe metadata / about screen
+  APP_TITLE:       "Fred IT Support"   # window title bar
+  # Optional icon: commit a file to clients/rustdesk-build/app_icon.ico and it
+  # will automatically replace the default RustDesk icon in the build.
 
 jobs:
   build:
@@ -233,6 +238,51 @@ jobs:
       # ── Python build deps ─────────────────────────────────────────────────────
       - name: Install Python build dependencies
         run: python -m pip install --quiet requests argparse
+
+      # ── Branding ──────────────────────────────────────────────────────────────
+      # All values driven from env: block at the top — change those to rebrand.
+      - name: Apply branding
+        shell: pwsh
+        run: |
+          $name   = "${{ env.APP_NAME }}"
+          $title  = "${{ env.APP_TITLE }}"
+          $portal = "${{ env.PORTAL_URL }}"
+
+          # 1. Window title (C++ runner)
+          $f = "flutter\windows\runner\main.cpp"
+          (Get-Content $f -Raw) -replace 'std::wstring app_name = L"RustDesk"', "std::wstring app_name = L`"$title`"" |
+            Set-Content $f -Encoding utf8
+          Write-Host "main.cpp: window title → $title"
+
+          # 2. Exe metadata (right-click → Properties)
+          $f = "flutter\windows\runner\Runner.rc"
+          $c = Get-Content $f -Raw
+          $c = $c -replace 'VALUE "FileDescription", "RustDesk[^"]*"', "VALUE `"FileDescription`", `"$name`""
+          $c = $c -replace 'VALUE "ProductName", "RustDesk[^"]*"',     "VALUE `"ProductName`", `"$name`""
+          $c | Set-Content $f -Encoding utf8
+          Write-Host "Runner.rc: product name → $name"
+
+          # 3. Remove the 'set up your own server' promo link
+          #    - Redirect the URL so clicking it goes to the portal instead
+          $f = "flutter\lib\desktop\pages\connection_page.dart"
+          (Get-Content $f -Raw) -replace '"https://rustdesk\.com/pricing"', "`"$portal`"" |
+            Set-Content $f -Encoding utf8
+          Write-Host "connection_page.dart: promo URL → $portal"
+
+          # 4. Clear the promo tip text (widget becomes invisible)
+          $f = "src\lang\en.rs"
+          (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}""' |
+            Set-Content $f -Encoding utf8
+          Write-Host "en.rs: setup_server_tip cleared"
+
+          # 5. Icon — place app_icon.ico at .github/assets/app_icon.ico in the fork
+          $dst = "flutter\windows\runner\resources\app_icon.ico"
+          if (Test-Path ".github\assets\app_icon.ico") {
+            Copy-Item ".github\assets\app_icon.ico" $dst -Force
+            Write-Host "Icon: replaced"
+          } else {
+            Write-Host "No icon found at .github/assets/app_icon.ico — using default"
+          }
 
       # ── Build ─────────────────────────────────────────────────────────────────
       - name: Build RustDesk (Flutter + Rust)
