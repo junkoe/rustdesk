@@ -278,12 +278,22 @@ jobs:
           Write-Host "en.rs: setup_server_tip → Help Desk"
 
           # 5. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
-          $dst = "flutter\windows\runner\resources\app_icon.ico"
           if (Test-Path "assets\app_icon.ico") {
-            Copy-Item "assets\app_icon.ico" $dst -Force
-            Write-Host "Icon: replaced"
+            # Flutter app icon (taskbar, inner exe)
+            Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
+            # Portable launcher icon (exe file icon in Explorer)
+            Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
+            Write-Host "Icon: replaced (Flutter + portable launcher)"
           } else {
             Write-Host "No icon found at assets/app_icon.ico — using default"
+          }
+
+          # 6. In-app title bar SVG icon
+          if (Test-Path "assets\polished_logo.svg") {
+            Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
+            Write-Host "SVG icon: replaced"
+          } else {
+            Write-Host "No SVG found at assets/polished_logo.svg — using default"
           }
 
       # ── Build ─────────────────────────────────────────────────────────────────
