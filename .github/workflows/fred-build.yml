@@ -271,17 +271,17 @@ jobs:
 
           # 4. Clear the promo tip text (widget becomes invisible)
           $f = "src\lang\en.rs"
-          (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}""' |
+          (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}"Help Desk"' |
             Set-Content $f -Encoding utf8
-          Write-Host "en.rs: setup_server_tip cleared"
+          Write-Host "en.rs: setup_server_tip → Help Desk"
 
-          # 5. Icon — place app_icon.ico at .github/assets/app_icon.ico in the fork
+          # 5. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
           $dst = "flutter\windows\runner\resources\app_icon.ico"
-          if (Test-Path ".github\assets\app_icon.ico") {
-            Copy-Item ".github\assets\app_icon.ico" $dst -Force
+          if (Test-Path "assets\app_icon.ico") {
+            Copy-Item "assets\app_icon.ico" $dst -Force
             Write-Host "Icon: replaced"
           } else {
-            Write-Host "No icon found at .github/assets/app_icon.ico — using default"
+            Write-Host "No icon found at assets/app_icon.ico — using default"
           }
 
       # ── Build ─────────────────────────────────────────────────────────────────
