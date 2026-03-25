@@ -1,13 +1,3 @@
-# fred-build.yml
-# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
-#
-# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
-# its peer ID on first launch.
-#
-# Trigger: push to master, or manually via Actions → "Run workflow"
-# Runner:  windows-2022 (free for public repos)
-# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
-
 name: Build Fred the IT Guy
 
 on:
@@ -189,6 +179,8 @@ jobs:
               }
               // ── Fred IT Guy: remote admin can push config changes when connected ──
               hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
+              // ── Fred IT Guy: disable update check notifications ───────────────
+              hbb_common::config::Config::set_option("enable-check-update".to_owned(), "N".to_owned());
               // ── Fred IT Guy: permanent password + both-mode verification ──────────
               // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
               // End user can still accept one-time sessions via the prompt.
@@ -296,20 +288,13 @@ jobs:
           [System.IO.File]::WriteAllText($f, $c, $enc)
           Write-Host "Runner.rc: product name → $name (encoding: $($enc.EncodingName))"
 
-          # 3. Remove the 'set up your own server' promo link
-          #    - Redirect the URL so clicking it goes to the portal instead
-          $f = "flutter\lib\desktop\pages\connection_page.dart"
-          (Get-Content $f -Raw) -replace '"https://rustdesk\.com/pricing"', "`"$portal`"" |
-            Set-Content $f -Encoding utf8
-          Write-Host "connection_page.dart: promo URL → $portal"
-
-          # 4. Clear the promo tip text (widget becomes invisible)
+          # 3. Clear the promo tip text (widget becomes invisible)
           $f = "src\lang\en.rs"
           (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}"Help Desk"' |
             Set-Content $f -Encoding utf8
           Write-Host "en.rs: setup_server_tip → Help Desk"
 
-          # 5. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
+          # 4. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
           if (Test-Path "assets\app_icon.ico") {
             # Flutter app icon (taskbar, inner exe)
             Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
@@ -320,7 +305,7 @@ jobs:
             Write-Host "No icon found at assets/app_icon.ico — using default"
           }
 
-          # 6. In-app title bar SVG icon
+          # 5. In-app title bar SVG icon
           if (Test-Path "assets\polished_logo.svg") {
             Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
             Write-Host "SVG icon: replaced"
@@ -345,7 +330,7 @@ jobs:
             '                ),',
             '                padding: EdgeInsets.all(24),',
             '                child: Column(',
-            '                  mainAxisAlignment: MainAxisAlignment.center,',
+            '                  mainAxisAlignment: MainAxisAlignment.start,',
             '                  crossAxisAlignment: CrossAxisAlignment.start,',
             '                  children: [',
             '                    Row(children: [',
@@ -398,11 +383,11 @@ jobs:
           $c | Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: right panel replaced with info panel"
 
-          # 2. Lock the password edit button
+          # 2. Hide update notification card (belt-and-suspenders alongside Rust config option)
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
-          (Get-Content $f -Raw) -replace 'if \(!bind\.isDisableSettings\(\)\)', 'if (false)' |
+          (Get-Content $f -Raw) -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false' |
             Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: password edit hidden"
+          Write-Host "desktop_home_page.dart: update notification card hidden"
 
           # 3. Settings tabs — keep only General and About
           # Hides Security, Network, Display, Printer so end user can't change permissions or server
@@ -432,14 +417,14 @@ jobs:
           $f = "flutter\lib\common.dart"
           $c = Get-Content $f -Raw
           $before = $c
-          # Default main window is 1280x720 — shrink width to 600 so the
-          # empty right panel (hidden) doesn't leave a huge grey void.
-          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )1280', '${1}600'
+          # Default main window is 1280x720 — shrink to 500x600 to fit our custom info panel.
+          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )1280', '${1}500'
+          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )720',  '${1}600'
           $c | Set-Content $f -Encoding utf8
           if ($c -eq $before) {
-            Write-Host "Warning: window width pattern not matched — skipping"
+            Write-Host "Warning: window size patterns not matched — skipping"
           } else {
-            Write-Host "common.dart: default window width 1280 → 600"
+            Write-Host "common.dart: default window size 1280x720 → 500x600"
           }
 
       # ── Build ─────────────────────────────────────────────────────────────────
