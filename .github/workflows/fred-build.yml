@@ -178,6 +178,11 @@ jobs:
               }
               // ── Fred IT Guy: remote admin can push config changes when connected ──
               hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
+              // ── Fred IT Guy: hide Security + Network tabs from settings ───────────
+              // Prevents end user from changing server or password via settings UI.
+              // General/Display/About tabs remain accessible.
+              hbb_common::config::Config::set_option("hide-security-setting".to_owned(), "Y".to_owned());
+              hbb_common::config::Config::set_option("hide-network-setting".to_owned(), "Y".to_owned());
               // ── Fred IT Guy: permanent password + both-mode verification ──────────
               // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
               // End user can still accept one-time sessions via the prompt.
@@ -327,17 +332,31 @@ jobs:
             Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: right panel hidden"
 
-          # 2. Lock the settings button (hide gear icon from local user)
-          $f = "flutter\lib\desktop\pages\desktop_tab_page.dart"
-          (Get-Content $f -Raw) -replace 'offstage: bind\.isIncomingOnly\(\) \|\| bind\.isDisableSettings\(\)', 'offstage: true' |
-            Set-Content $f -Encoding utf8
-          Write-Host "desktop_tab_page.dart: settings button hidden"
+          # 2. Settings button — leave visible (Security + Network tabs hidden via config)
+          Write-Host "desktop_tab_page.dart: settings button left visible"
 
           # 3. Lock the password edit button
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           (Get-Content $f -Raw) -replace 'if \(!bind\.isDisableSettings\(\)\)', 'if (false)' |
             Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: password edit hidden"
+
+      # ── Window size ───────────────────────────────────────────────────────────
+      - name: Shrink default window width
+        shell: pwsh
+        run: |
+          $f = "flutter\lib\common.dart"
+          $c = Get-Content $f -Raw
+          $before = $c
+          # Default main window is 1280x720 — shrink width to 600 so the
+          # empty right panel (hidden) doesn't leave a huge grey void.
+          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )1280', '${1}600'
+          $c | Set-Content $f -Encoding utf8
+          if ($c -eq $before) {
+            Write-Host "Warning: window width pattern not matched — skipping"
+          } else {
+            Write-Host "common.dart: default window width 1280 → 600"
+          }
 
       # ── Build ─────────────────────────────────────────────────────────────────
       - name: Build RustDesk (Flutter + Rust)
