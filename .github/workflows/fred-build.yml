@@ -182,7 +182,7 @@ jobs:
               // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
               // End user can still accept one-time sessions via the prompt.
               if !"$p".is_empty() {
-                  hbb_common::config::Config::set_permanent_password("$p".to_owned());
+                  hbb_common::config::Config::set_permanent_password("$p");
                   hbb_common::config::Config::set_option("verification-method".to_owned(), "use-both-passwords".to_owned());
               }
               // ── Fred IT Guy: phone-home registration ─────────────────────────────
@@ -199,14 +199,24 @@ jobs:
                       r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
                       id_c, name_c
                   );
+                  // Initial registration (retry up to 3 times)
                   for attempt in 0..3u8 {
                       if let Ok(resp) = ureq::post(&format!("{}/api/register", "$portal"))
                           .set("Content-Type", "application/json")
                           .timeout(std::time::Duration::from_secs(10))
                           .send_string(&body) {
-                          if resp.status() < 400 { return; }
+                          if resp.status() < 400 { break; }
                       }
                       if attempt < 2 { std::thread::sleep(std::time::Duration::from_secs(60)); }
+                  }
+                  // Heartbeat loop — keeps client status 'online' in the portal
+                  let hb_body = format!(r#"{{"client_id":"{}"}}"#, id_c);
+                  loop {
+                      std::thread::sleep(std::time::Duration::from_secs(60));
+                      let _ = ureq::post(&format!("{}/api/heartbeat", "$portal"))
+                          .set("Content-Type", "application/json")
+                          .timeout(std::time::Duration::from_secs(10))
+                          .send_string(&hb_body);
                   }
               });
           "@
