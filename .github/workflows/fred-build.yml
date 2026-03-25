@@ -1,3 +1,13 @@
+# fred-build.yml
+# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
+#
+# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
+# its peer ID on first launch.
+#
+# Trigger: push to master, or manually via Actions → "Run workflow"
+# Runner:  windows-2022 (free for public repos)
+# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
+
 name: Build Fred the IT Guy
 
 on:
@@ -14,7 +24,10 @@ env:
   # ── Branding (change these to rebrand for another deployment) ──────────────
   APP_NAME:        "Fred the IT Guy"   # exe metadata / about screen
   APP_TITLE:       "Fred IT Support"   # window title bar
-  SUPPORT_PHONE:   "(602) 695-9825"    # shown in the info panel on the right side
+  SUPPORT_PHONE:   "(602) 695-9825"              # shown in the info panel
+  WEBSITE_URL:     "https://help.fredtheitguy.com" # banner click destination
+  BANNER_LABEL:    "Visit your support portal"     # banner main text
+  BANNER_URL_TEXT: "help.fredtheitguy.com"          # banner displayed URL
   # Optional icon: commit a file to clients/rustdesk-build/app_icon.ico and it
   # will automatically replace the default RustDesk icon in the build.
 
@@ -320,7 +333,10 @@ jobs:
           # 1. Replace right panel with branded info panel
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           $c = Get-Content $f -Raw
-          $phone = "${{ env.SUPPORT_PHONE }}"
+          $phone          = "${{ env.SUPPORT_PHONE }}"
+          $websiteUrl     = "${{ env.WEBSITE_URL }}"
+          $bannerLabel    = "${{ env.BANNER_LABEL }}"
+          $bannerUrlText  = "${{ env.BANNER_URL_TEXT }}"
           $panel = @(
             'Expanded(',
             '              child: Container(',
@@ -367,13 +383,50 @@ jobs:
             '                    SizedBox(height: 20),',
             '                    Divider(color: Color(0xFFE2E8F0)),',
             '                    SizedBox(height: 12),',
-            "                    Text('Need help? Call us:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),",
+            "                    Text('Need help? Contact:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF475569))),",
             '                    SizedBox(height: 8),',
             '                    Row(children: [',
             '                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),',
             '                      SizedBox(width: 8),',
             "                      Text('$phone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),",
             '                    ]),',
+            '                    SizedBox(height: 16),',
+            '                    Expanded(',
+            '                      child: GestureDetector(',
+            "                        onTap: () => launchUrlString('$websiteUrl'),",
+            '                        child: Container(',
+            '                          width: double.infinity,',
+            '                          decoration: BoxDecoration(',
+            '                            gradient: LinearGradient(',
+            '                              begin: Alignment.topLeft,',
+            '                              end: Alignment.bottomRight,',
+            '                              colors: [Color(0xFF6366F1), Color(0xFF4338CA)],',
+            '                            ),',
+            '                            borderRadius: BorderRadius.circular(8),',
+            '                          ),',
+            '                          child: Column(',
+            '                            mainAxisAlignment: MainAxisAlignment.center,',
+            '                            children: [',
+            '                              Icon(Icons.language_outlined, color: Color(0xFFFFFFFF), size: 22),',
+            '                              SizedBox(height: 6),',
+            "                              Text('$bannerLabel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFFFFFFF))),",
+            '                              SizedBox(height: 4),',
+            "                              Text('$bannerUrlText', style: TextStyle(fontSize: 11, color: Color(0xB3FFFFFF))),",
+            '                            ],',
+            '                          ),',
+            '                        ),',
+            '                      ),',
+            '                    ),',
+            '                    SizedBox(height: 12),',
+            '                    Container(',
+            '                      height: 16,',
+            '                      decoration: BoxDecoration(',
+            '                        gradient: LinearGradient(',
+            '                          colors: [Color(0xFF818CF8), Color(0xFF6366F1), Color(0xFF4F46E5)],',
+            '                        ),',
+            '                        borderRadius: BorderRadius.circular(4),',
+            '                      ),',
+            '                    ),',
             '                  ],',
             '                ),',
             '              ),',
@@ -382,6 +435,16 @@ jobs:
           $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
           $c | Set-Content $f -Encoding utf8
           Write-Host "desktop_home_page.dart: right panel replaced with info panel"
+
+          # Ensure url_launcher is imported (needed for banner tap handler)
+          $c = Get-Content $f -Raw
+          if ($c -notmatch 'url_launcher') {
+            $c = "import 'package:url_launcher/url_launcher_string.dart';`n" + $c
+            $c | Set-Content $f -Encoding utf8
+            Write-Host "desktop_home_page.dart: added url_launcher import"
+          } else {
+            Write-Host "desktop_home_page.dart: url_launcher already imported"
+          }
 
           # 2. Hide update notification card (belt-and-suspenders alongside Rust config option)
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
