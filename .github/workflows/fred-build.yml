@@ -393,7 +393,7 @@ jobs:
             '                    SizedBox(height: 16),',
             '                    Expanded(',
             '                      child: GestureDetector(',
-            "                        onTap: () => launchUrlString('$websiteUrl'),",
+            "                        onTap: () => launchUrl(Uri.parse('$websiteUrl')),",
             '                        child: Container(',
             '                          width: double.infinity,',
             '                          decoration: BoxDecoration(',
@@ -437,9 +437,10 @@ jobs:
           Write-Host "desktop_home_page.dart: right panel replaced with info panel"
 
           # Ensure url_launcher is imported (needed for banner tap handler)
+          # Check for the specific launchUrl import, not just any url_launcher reference
           $c = Get-Content $f -Raw
-          if ($c -notmatch 'url_launcher') {
-            $c = "import 'package:url_launcher/url_launcher_string.dart';`n" + $c
+          if ($c -notmatch "import 'package:url_launcher/url_launcher.dart'") {
+            $c = "import 'package:url_launcher/url_launcher.dart';`n" + $c
             $c | Set-Content $f -Encoding utf8
             Write-Host "desktop_home_page.dart: added url_launcher import"
           } else {
