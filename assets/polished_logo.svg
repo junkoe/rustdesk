@@ -1,0 +1,29 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3498db;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2980b9;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4" />
+      <feOffset dx="2" dy="2" result="offsetblur" />
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Main Rounded Square Container -->
+  <rect x="20" y="20" width="216" height="216" rx="40" fill="url(#bgGrad)" filter="url(#shadow)" />
+  
+  <!-- Text: FRED -->
+  <text x="128" y="125" font-family="Arial, sans-serif" font-weight="900" font-size="70" fill="white" text-anchor="middle">FRED</text>
+  
+  <!-- Text: the IT guy -->
+  <!-- Using a generic script-like font stack, but keep it clean for small sizes -->
+  <text x="128" y="175" font-family="'Segoe Script', 'Comic Sans MS', cursive" font-weight="bold" font-size="32" fill="#ecf0f1" text-anchor="middle">the IT guy</text>
+</svg>
