@@ -243,11 +243,68 @@ jobs:
           [System.IO.File]::WriteAllText($f, $c, $enc)
           Write-Host "Runner.rc: product name → $name"
 
-          # 3. Hide update notification card
+          # 3. Hide update notification card + replace right panel with admin notes panel
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
-          (Get-Content $f -Raw) -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false' |
-            Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: update notification card hidden"
+          $c = Get-Content $f -Raw
+          $c = $c -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false'
+
+          $panel = @(
+            'Expanded(',
+            '              child: Container(',
+            '                decoration: BoxDecoration(',
+            '                  color: Color(0xFF242424),',
+            '                  border: Border(left: BorderSide(color: Color(0xFF2D2D2D))),',
+            '                ),',
+            '                padding: EdgeInsets.all(20),',
+            '                child: Column(',
+            '                  crossAxisAlignment: CrossAxisAlignment.start,',
+            '                  children: [',
+            '                    Row(children: [',
+            '                      Icon(Icons.admin_panel_settings_outlined, color: Color(0xFF6366F1), size: 18),',
+            '                      SizedBox(width: 8),',
+            "                      Text('Fred Admin', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFFF1F5F9))),",
+            '                    ]),',
+            '                    SizedBox(height: 16),',
+            '                    Divider(color: Color(0xFF2D2D2D)),',
+            '                    SizedBox(height: 12),',
+            "                    Text('Session Notes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
+            '                    SizedBox(height: 8),',
+            '                    Expanded(',
+            '                      child: TextField(',
+            '                        maxLines: null,',
+            '                        expands: true,',
+            '                        textAlignVertical: TextAlignVertical.top,',
+            '                        style: TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '                        decoration: InputDecoration(',
+            "                          hintText: 'Notes for this session...',",
+            '                          hintStyle: TextStyle(color: Color(0xFF475569), fontSize: 12),',
+            '                          filled: true,',
+            '                          fillColor: Color(0xFF1A1A2E),',
+            '                          border: OutlineInputBorder(',
+            '                            borderRadius: BorderRadius.circular(6),',
+            '                            borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
+            '                          ),',
+            '                          enabledBorder: OutlineInputBorder(',
+            '                            borderRadius: BorderRadius.circular(6),',
+            '                            borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
+            '                          ),',
+            '                          focusedBorder: OutlineInputBorder(',
+            '                            borderRadius: BorderRadius.circular(6),',
+            '                            borderSide: BorderSide(color: Color(0xFF6366F1)),',
+            '                          ),',
+            '                          contentPadding: EdgeInsets.all(10),',
+            '                        ),',
+            '                      ),',
+            '                    ),',
+            '                  ],',
+            '                ),',
+            '              ),',
+            '            )'
+          ) -join "`n"
+
+          $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
+          $c | Set-Content $f -Encoding utf8
+          Write-Host "desktop_home_page.dart: update card hidden + admin notes panel injected"
 
           # 4. Icon — admin clients share the same branding assets
           if (Test-Path "assets\app_icon.ico") {
