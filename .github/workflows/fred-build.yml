@@ -524,10 +524,8 @@ jobs:
               ''
             ) -join "`n"
 
-            $c = $c.Substring(0, $classStart) + $helperClass + "`n" + $c.Substring($classStart)
-
-            # Re-find _RemotePageState after the helper class insertion
-            $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
+            # Find opening brace of _RemotePageState before inserting helper class.
+            # If we inserted the helper first, super.initState() regex would hit _FsNotesOverlayWidgetState instead.
             $openBrace = $c.IndexOf('{', $classStart)
 
             # ── 2. Inject session fields + methods into _RemotePageState ──────────────
@@ -613,11 +611,15 @@ jobs:
 
             $c = $c.Substring(0, $openBrace + 1) + $dartInject + $c.Substring($openBrace + 1)
 
-            # Call _fsStartSession() after super.initState(); (first occurrence = _RemotePageState)
+            # Patch super.initState/dispose now — helper class not yet injected,
+            # so the first occurrences are unambiguously in _RemotePageState.
             $c = [regex]::Replace($c, [regex]::Escape("super.initState();"), "super.initState();`n    _fsStartSession();", 1)
-
-            # Call _fsEndSession() + dispose controller before super.dispose(); (first occurrence)
             $c = [regex]::Replace($c, [regex]::Escape("super.dispose();"), "_fsEndSession();`n    _fsNotesController.dispose();`n    super.dispose();", 1)
+
+            # ── 3. LAST: inject helper class before _RemotePageState ──────────────────
+            # Re-find position after dartInject shifted the file contents.
+            $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
+            $c = $c.Substring(0, $classStart) + $helperClass + "`n" + $c.Substring($classStart)
 
             Write-Host "remote_page.dart: draggable notes overlay + session tracking injected"
           }
