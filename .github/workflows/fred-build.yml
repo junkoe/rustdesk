@@ -315,60 +315,58 @@ jobs:
             Write-Host "Warning: _RemotePageState not found — session tracking not injected"
           } else {
             $openBrace = $c.IndexOf('{', $classStart)
-            $dartInject = @"
-
-  // ── Fred Admin: session tracking fields ──────────────────────────────────
-  String? _fsSessionId;
-  Timer? _fsHeartbeatTimer;
-
-  void _fsStartSession() async {
-    // Brief delay to let RustDesk establish the connection before we record it
-    await Future.delayed(const Duration(seconds: 2));
-    try {
-      final resp = await rdHttp.post(
-        Uri.parse('$portal/api/session/start'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'peer_id': widget.id}),
-      );
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        _fsSessionId = data['session_id'].toString();
-        _fsHeartbeatTimer = Timer.periodic(
-          const Duration(seconds: 30),
-          (_) => _fsSendHeartbeat(),
-        );
-      }
-    } catch (_) {}
-  }
-
-  void _fsSendHeartbeat() async {
-    final sid = _fsSessionId;
-    if (sid == null) return;
-    try {
-      await rdHttp.post(
-        Uri.parse('$portal/api/session/heartbeat'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'session_id': int.parse(sid)}),
-      );
-    } catch (_) {}
-  }
-
-  void _fsEndSession() {
-    _fsHeartbeatTimer?.cancel();
-    _fsHeartbeatTimer = null;
-    final sid = _fsSessionId;
-    if (sid == null) return;
-    _fsSessionId = null;
-    // Fire-and-forget: dispose() is synchronous so we cannot await
-    rdHttp.post(
-      Uri.parse('$portal/api/session/end'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'session_id': int.parse(sid), 'notes': null}),
-    );
-  }
-  // ── end Fred Admin session tracking ──────────────────────────────────────
-
-"@
+            $dartInject = @(
+              '',
+              '  // ── Fred Admin: session tracking fields ─────────────────────────────',
+              '  String? _fsSessionId;',
+              '  Timer? _fsHeartbeatTimer;',
+              '',
+              '  void _fsStartSession() async {',
+              '    await Future.delayed(const Duration(seconds: 2));',
+              '    try {',
+              "      final resp = await rdHttp.post(",
+              "        Uri.parse('$portal/api/session/start'),",
+              "        headers: {'Content-Type': 'application/json'},",
+              "        body: jsonEncode({'peer_id': widget.id}),",
+              '      );',
+              '      if (resp.statusCode == 200) {',
+              '        final data = jsonDecode(resp.body) as Map<String, dynamic>;',
+              "        _fsSessionId = data['session_id'].toString();",
+              '        _fsHeartbeatTimer = Timer.periodic(',
+              '          const Duration(seconds: 30),',
+              '          (_) => _fsSendHeartbeat(),',
+              '        );',
+              '      }',
+              '    } catch (_) {}',
+              '  }',
+              '',
+              '  void _fsSendHeartbeat() async {',
+              '    final sid = _fsSessionId;',
+              '    if (sid == null) return;',
+              '    try {',
+              "      await rdHttp.post(",
+              "        Uri.parse('$portal/api/session/heartbeat'),",
+              "        headers: {'Content-Type': 'application/json'},",
+              "        body: jsonEncode({'session_id': int.parse(sid)}),",
+              '      );',
+              '    } catch (_) {}',
+              '  }',
+              '',
+              '  void _fsEndSession() {',
+              '    _fsHeartbeatTimer?.cancel();',
+              '    _fsHeartbeatTimer = null;',
+              '    final sid = _fsSessionId;',
+              '    if (sid == null) return;',
+              '    _fsSessionId = null;',
+              "    rdHttp.post(",
+              "      Uri.parse('$portal/api/session/end'),",
+              "      headers: {'Content-Type': 'application/json'},",
+              "      body: jsonEncode({'session_id': int.parse(sid), 'notes': null}),",
+              '    );',
+              '  }',
+              '  // ── end Fred Admin session tracking ───────────────────────────────────',
+              ''
+            ) -join "`n"
             $c = $c.Substring(0, $openBrace + 1) + $dartInject + $c.Substring($openBrace + 1)
 
             # Call _fsStartSession() after super.initState(); (first occurrence = _RemotePageState)
