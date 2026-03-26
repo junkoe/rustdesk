@@ -6,7 +6,7 @@
 #   - No incoming connections, no baked-in password
 #   - Settings: General, Display, About (not locked down)
 #   - No phone-home registration — admin is not tracked as a client
-#   - Patches desktop_remote_page.dart for session start/heartbeat/end signalling
+#   - Patches remote_page.dart for session start/heartbeat/end signalling
 #   - Normal window size (not shrunk)
 #
 # Trigger: push to master, or manually via Actions → "Run workflow"
@@ -285,15 +285,21 @@ jobs:
             Write-Host "desktop_setting_page.dart: settings tabs → General, Display, About"
           }
 
-      # ── Patch desktop_remote_page.dart: session tracking ─────────────────
+      # ── Patch remote_page.dart: session tracking ─────────────────
       # Each remote session window is an independent Flutter widget instance.
       # We inject session start/heartbeat/end into _RemotePageState so every
       # open session window independently tracks its own session on the portal.
-      - name: Patch desktop_remote_page.dart (session tracking)
+      - name: Patch remote_page.dart (session tracking)
         shell: pwsh
         run: |
           $portal = "${{ env.PORTAL_URL }}"
-          $f = "flutter\lib\desktop\pages\desktop_remote_page.dart"
+          $f = "flutter\lib\desktop\pages\remote_page.dart"
+          if (!(Test-Path $f)) {
+            Write-Host "remote_page.dart not found at expected path — searching..."
+            Get-ChildItem -Recurse -Filter "*remote_page*" flutter\lib | Select-Object FullName
+            Write-Error "Cannot find remote_page.dart — update path in workflow"
+            exit 1
+          }
           $c = Get-Content $f -Raw
           $before = $c
 
@@ -375,13 +381,13 @@ jobs:
             # Call _fsEndSession() before super.dispose(); (first occurrence = _RemotePageState)
             $c = [regex]::Replace($c, [regex]::Escape("super.dispose();"), "_fsEndSession();`n    super.dispose();", 1)
 
-            Write-Host "desktop_remote_page.dart: session tracking injected"
+            Write-Host "remote_page.dart: session tracking injected"
           }
 
           $c | Set-Content $f -Encoding utf8
 
           if ($c -eq $before) {
-            Write-Host "Warning: desktop_remote_page.dart was not modified"
+            Write-Host "Warning: remote_page.dart was not modified"
           }
 
       # ── Build ─────────────────────────────────────────────────────────────
