@@ -342,10 +342,12 @@ jobs:
             Write-Host "desktop_setting_page.dart: settings tabs → General, Display, About"
           }
 
-      # ── Patch remote_page.dart: session tracking ─────────────────
-      # Each remote session window is an independent Flutter widget instance.
-      # We inject session start/heartbeat/end into _RemotePageState so every
-      # open session window independently tracks its own session on the portal.
+      # ── Patch remote_page.dart: session tracking + draggable notes overlay ──────
+      # Injects:
+      #   1. _FsNotesOverlayWidget — draggable icon/panel (floating, no screen resize)
+      #      Collapsed: small indigo notepad icon, draggable to any position
+      #      Expanded:  notes panel with header (tap header to collapse), draggable
+      #   2. Session start/heartbeat/end into _RemotePageState
       - name: Patch remote_page.dart (session tracking)
         shell: pwsh
         run: |
@@ -371,18 +373,167 @@ jobs:
             $c = "import 'package:http/http.dart' as rdHttp;`n" + $c
           }
 
-          # Inject fields + session methods into _RemotePageState right after
-          # the opening brace of the class declaration.
           $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
           if ($classStart -lt 0) {
             Write-Host "Warning: _RemotePageState not found — session tracking not injected"
           } else {
+            # ── 1. Inject draggable overlay StatefulWidget before _RemotePageState ────
+            # Array-join: single-quoted PS strings for Dart code (no PS interpolation).
+            # Lines with Dart single-quoted strings use double-quoted PS strings.
+            $helperClass = @(
+              '// ── Fred Admin: draggable notes overlay widget ──────────────────────────────',
+              'class _FsNotesOverlayWidget extends StatefulWidget {',
+              '  final TextEditingController controller;',
+              '  final String label;',
+              '  const _FsNotesOverlayWidget({required this.controller, required this.label});',
+              '  @override',
+              '  State<_FsNotesOverlayWidget> createState() => _FsNotesOverlayWidgetState();',
+              '}',
+              '',
+              'class _FsNotesOverlayWidgetState extends State<_FsNotesOverlayWidget> {',
+              '  double _x = 0;',
+              '  double _y = 0;',
+              '  bool _expanded = false;',
+              '  bool _placed = false;',
+              '',
+              '  @override',
+              '  void initState() {',
+              '    super.initState();',
+              '    WidgetsBinding.instance.addPostFrameCallback((_) {',
+              '      if (!mounted) return;',
+              '      final sz = MediaQuery.of(context).size;',
+              '      setState(() {',
+              '        _x = sz.width - 60;',
+              '        _y = sz.height - 60;',
+              '        _placed = true;',
+              '      });',
+              '    });',
+              '  }',
+              '',
+              '  @override',
+              '  Widget build(BuildContext context) {',
+              '    if (!_placed) return const SizedBox.shrink();',
+              '    return Positioned(',
+              '      left: _x,',
+              '      top: _y,',
+              '      child: GestureDetector(',
+              '        onPanUpdate: (d) => setState(() {',
+              '          _x += d.delta.dx;',
+              '          _y += d.delta.dy;',
+              '        }),',
+              '        child: Material(',
+              '          color: Colors.transparent,',
+              '          child: _expanded ? _buildPanel() : _buildIcon(),',
+              '        ),',
+              '      ),',
+              '    );',
+              '  }',
+              '',
+              '  Widget _buildIcon() {',
+              '    return GestureDetector(',
+              "      onTap: () => setState(() { _expanded = true; }),",
+              '      child: Container(',
+              '        width: 44,',
+              '        height: 44,',
+              '        decoration: BoxDecoration(',
+              '          color: Color(0xFF6366F1),',
+              '          borderRadius: BorderRadius.circular(22),',
+              '          boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 2))],',
+              '        ),',
+              '        child: Icon(Icons.notes, color: Colors.white, size: 22),',
+              '      ),',
+              '    );',
+              '  }',
+              '',
+              '  Widget _buildPanel() {',
+              '    return Container(',
+              '      width: 260,',
+              '      decoration: BoxDecoration(',
+              '        color: Color(0xFF1E1E2E),',
+              '        borderRadius: BorderRadius.circular(8),',
+              '        border: Border.all(color: Color(0xFF2D2D2D)),',
+              '        boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2))],',
+              '      ),',
+              '      child: Column(',
+              '        mainAxisSize: MainAxisSize.min,',
+              '        children: [',
+              '          GestureDetector(',
+              "            onTap: () => setState(() { _expanded = false; }),",
+              '            child: Container(',
+              '              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
+              '              decoration: BoxDecoration(',
+              '                color: Color(0xFF2D2D3E),',
+              '                borderRadius: BorderRadius.only(',
+              '                  topLeft: Radius.circular(8),',
+              '                  topRight: Radius.circular(8),',
+              '                ),',
+              '              ),',
+              '              child: Row(',
+              '                children: [',
+              '                  Icon(Icons.notes, color: Color(0xFF6366F1), size: 16),',
+              '                  SizedBox(width: 6),',
+              '                  Expanded(',
+              '                    child: Text(',
+              '                      widget.label,',
+              '                      style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),',
+              '                      overflow: TextOverflow.ellipsis,',
+              '                    ),',
+              '                  ),',
+              '                  Icon(Icons.expand_more, color: Color(0xFF64748B), size: 16),',
+              '                ],',
+              '              ),',
+              '            ),',
+              '          ),',
+              '          Padding(',
+              '            padding: EdgeInsets.all(10),',
+              '            child: SizedBox(',
+              '              height: 120,',
+              '              child: TextField(',
+              '                controller: widget.controller,',
+              '                maxLines: null,',
+              '                expands: true,',
+              '                textAlignVertical: TextAlignVertical.top,',
+              '                style: TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+              '                decoration: InputDecoration(',
+              "                  hintText: 'Session notes...',",
+              '                  hintStyle: TextStyle(color: Color(0xFF475569), fontSize: 12),',
+              '                  filled: true,',
+              '                  fillColor: Color(0xFF0F0F1A),',
+              '                  border: OutlineInputBorder(',
+              '                    borderRadius: BorderRadius.circular(4),',
+              '                    borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
+              '                  ),',
+              '                  enabledBorder: OutlineInputBorder(',
+              '                    borderRadius: BorderRadius.circular(4),',
+              '                    borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
+              '                  ),',
+              '                  focusedBorder: OutlineInputBorder(',
+              '                    borderRadius: BorderRadius.circular(4),',
+              '                    borderSide: BorderSide(color: Color(0xFF6366F1)),',
+              '                  ),',
+              '                  contentPadding: EdgeInsets.all(8),',
+              '                ),',
+              '              ),',
+              '            ),',
+              '          ),',
+              '        ],',
+              '      ),',
+              '    );',
+              '  }',
+              '}',
+              ''
+            ) -join "`n"
+
+            $c = $c.Substring(0, $classStart) + $helperClass + "`n" + $c.Substring($classStart)
+
+            # Re-find _RemotePageState after the helper class insertion
+            $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
             $openBrace = $c.IndexOf('{', $classStart)
-            # Array-join: double-quoted strings allow $portal interpolation;
-            # Dart single-quote literals are safe inside double-quoted PS strings.
+
+            # ── 2. Inject session fields + methods into _RemotePageState ──────────────
             $dartInject = @(
               '',
-              '  // ── Fred Admin: session tracking + notes overlay ──────────────────────────',
+              '  // ── Fred Admin: session tracking ───────────────────────────────────────────',
               '  String? _fsSessionId;',
               '  Timer? _fsHeartbeatTimer;',
               '  OverlayEntry? _fsNotesOverlay;',
@@ -397,50 +548,9 @@ jobs:
               "    final mn = now.minute.toString().padLeft(2, '0');",
               "    final label = 'Notes — ' + widget.id + '  ·  ' + mo + '/' + dy + '/' + now.year.toString() + ' ' + hr + ':' + mn;",
               '    _fsNotesOverlay = OverlayEntry(',
-              '      builder: (ctx) => Positioned(',
-              '        bottom: 16,',
-              '        right: 16,',
-              '        width: 260,',
-              '        child: Material(',
-              '          color: Colors.transparent,',
-              '          child: Container(',
-              '            decoration: BoxDecoration(',
-              '              color: Color(0xFF1E1E2E),',
-              '              borderRadius: BorderRadius.circular(8),',
-              '              border: Border.all(color: Color(0xFF2D2D2D)),',
-              '              boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2))],',
-              '            ),',
-              '            padding: EdgeInsets.all(12),',
-              '            child: Column(',
-              '              mainAxisSize: MainAxisSize.min,',
-              '              crossAxisAlignment: CrossAxisAlignment.start,',
-              '              children: [',
-              '                Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)), overflow: TextOverflow.ellipsis),',
-              '                SizedBox(height: 8),',
-              '                SizedBox(',
-              '                  height: 100,',
-              '                  child: TextField(',
-              '                    controller: _fsNotesController,',
-              '                    maxLines: null,',
-              '                    expands: true,',
-              '                    textAlignVertical: TextAlignVertical.top,',
-              '                    style: TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-              '                    decoration: InputDecoration(',
-              "                      hintText: 'Session notes...',",
-              '                      hintStyle: TextStyle(color: Color(0xFF475569), fontSize: 12),',
-              '                      filled: true,',
-              '                      fillColor: Color(0xFF0F0F1A),',
-              '                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Color(0xFF2D2D2D))),',
-              '                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Color(0xFF2D2D2D))),',
-              '                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: BorderSide(color: Color(0xFF6366F1))),',
-              '                      contentPadding: EdgeInsets.all(8),',
-              '                    ),',
-              '                  ),',
-              '                ),',
-              '              ],',
-              '            ),',
-              '          ),',
-              '        ),',
+              '      builder: (ctx) => _FsNotesOverlayWidget(',
+              '        controller: _fsNotesController,',
+              '        label: label,',
               '      ),',
               '    );',
               '    WidgetsBinding.instance.addPostFrameCallback((_) {',
@@ -497,7 +607,7 @@ jobs:
               "      body: jsonEncode({'session_id': int.parse(sid), 'notes': notes}),",
               '    );',
               '  }',
-              '  // ── end Fred Admin session tracking ────────────────────────────────────────',
+              '  // ── end Fred Admin session tracking ──────────────────────────────────────────',
               ''
             ) -join "`n"
 
@@ -509,7 +619,7 @@ jobs:
             # Call _fsEndSession() + dispose controller before super.dispose(); (first occurrence)
             $c = [regex]::Replace($c, [regex]::Escape("super.dispose();"), "_fsEndSession();`n    _fsNotesController.dispose();`n    super.dispose();", 1)
 
-            Write-Host "remote_page.dart: session tracking + notes overlay injected"
+            Write-Host "remote_page.dart: draggable notes overlay + session tracking injected"
           }
 
           $c | Set-Content $f -Encoding utf8
