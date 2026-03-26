@@ -195,7 +195,7 @@ jobs:
               // ── Fred IT Guy: disable update check notifications ───────────────
               hbb_common::config::Config::set_option("enable-check-update".to_owned(), "N".to_owned());
               // ── Fred IT Guy: force dark theme ─────────────────────────────────
-              hbb_common::config::Config::set_option("theme".to_owned(), "dark".to_owned());
+              hbb_common::config::LocalConfig::set_option("theme".to_owned(), "dark".to_owned());
               // ── Fred IT Guy: permanent password + both-mode verification ──────────
               // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
               // End user can still accept one-time sessions via the prompt.
@@ -343,7 +343,7 @@ jobs:
             'Expanded(',
             '              child: Container(',
             '                decoration: BoxDecoration(',
-            '                  color: Color(0xFF141414),',
+            '                  color: Color(0xFF242424),',
             '                  border: Border(left: BorderSide(color: Color(0xFF2D2D2D))),',
             '                ),',
             '                padding: EdgeInsets.all(24),',
@@ -360,25 +360,25 @@ jobs:
             "                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFFCBD5E1))),",
             '                    SizedBox(height: 12),',
             '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
             '                      SizedBox(width: 8),',
             "                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
             '                    ]),',
             '                    SizedBox(height: 6),',
             '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
             '                      SizedBox(width: 8),',
             "                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
             '                    ]),',
             '                    SizedBox(height: 6),',
             '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
             '                      SizedBox(width: 8),',
             "                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
             '                    ]),',
             '                    SizedBox(height: 6),',
             '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.check_circle_outline, color: Color(0xFF6366F1), size: 14),',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
             '                      SizedBox(width: 8),',
             "                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
             '                    ]),',
@@ -411,7 +411,7 @@ jobs:
             '                            child: Column(',
             '                              mainAxisAlignment: MainAxisAlignment.center,',
             '                              children: [',
-            '                                Icon(Icons.language_outlined, color: Color(0xFFFFFFFF), size: 22),',
+            '                                Icon(Icons.language_outlined, color: Color(0xFF6366F1), size: 22),',
             '                                SizedBox(height: 6),',
             '                                Row(mainAxisSize: MainAxisSize.min, children: [',
             "                                  Text('$bannerLabel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFFFFFFF))),",
