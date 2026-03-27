@@ -308,108 +308,108 @@ jobs:
             '            )'
           ) -join "`n"
 
-          $quickConnectClass = @'
-
-class _FsQuickConnectWidget extends StatefulWidget {
-  const _FsQuickConnectWidget({Key? key}) : super(key: key);
-  @override
-  State<_FsQuickConnectWidget> createState() => _FsQuickConnectWidgetState();
-}
-class _FsQuickConnectWidgetState extends State<_FsQuickConnectWidget> {
-  final TextEditingController _ctrl = TextEditingController();
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Expanded(child: TextField(
-        controller: _ctrl,
-        onSubmitted: (v) {
-          final id = v.trim().replaceAll(' ', '');
-          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }
-        },
-        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),
-        decoration: InputDecoration(
-          hintText: 'Peer ID...',
-          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-          filled: true,
-          fillColor: const Color(0xFF1A1A2E),
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),
-        ),
-      )),
-      const SizedBox(width: 8),
-      ElevatedButton(
-        onPressed: () {
-          final id = _ctrl.text.trim().replaceAll(' ', '');
-          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF6366F1),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-          textStyle: const TextStyle(fontSize: 12),
-        ),
-        child: const Text('Connect'),
-      ),
-    ]);
-  }
-}
-
-class _FsAliasWidget extends StatefulWidget {
-  const _FsAliasWidget({Key? key}) : super(key: key);
-  @override
-  State<_FsAliasWidget> createState() => _FsAliasWidgetState();
-}
-class _FsAliasWidgetState extends State<_FsAliasWidget> {
-  late final TextEditingController _ctrl;
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: bind.mainGetOption(key: 'alias'));
-  }
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-  void _save() {
-    bind.mainSetOption(key: 'alias', value: _ctrl.text.trim());
-  }
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Expanded(child: TextField(
-        controller: _ctrl,
-        onSubmitted: (_) => _save(),
-        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),
-        decoration: InputDecoration(
-          hintText: 'Display name...',
-          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-          filled: true,
-          fillColor: const Color(0xFF1A1A2E),
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),
-        ),
-      )),
-      const SizedBox(width: 6),
-      IconButton(
-        onPressed: _save,
-        icon: const Icon(Icons.check, size: 18, color: Color(0xFF6366F1)),
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-        splashRadius: 16,
-      ),
-    ]);
-  }
-}
-'@
+          $quickConnectClass = @(
+            '',
+            'class _FsQuickConnectWidget extends StatefulWidget {',
+            '  const _FsQuickConnectWidget({Key? key}) : super(key: key);',
+            '  @override',
+            '  State<_FsQuickConnectWidget> createState() => _FsQuickConnectWidgetState();',
+            '}',
+            'class _FsQuickConnectWidgetState extends State<_FsQuickConnectWidget> {',
+            '  final TextEditingController _ctrl = TextEditingController();',
+            '  @override',
+            '  void dispose() { _ctrl.dispose(); super.dispose(); }',
+            '  @override',
+            '  Widget build(BuildContext context) {',
+            '    return Row(children: [',
+            '      Expanded(child: TextField(',
+            '        controller: _ctrl,',
+            '        onSubmitted: (v) {',
+            "          final id = v.trim().replaceAll(' ', '');",
+            '          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }',
+            '        },',
+            '        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '        decoration: InputDecoration(',
+            "          hintText: 'Peer ID...',",
+            '          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),',
+            '          filled: true,',
+            '          fillColor: const Color(0xFF1A1A2E),',
+            '          isDense: true,',
+            '          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
+            '          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),',
+            '        ),',
+            '      )),',
+            '      const SizedBox(width: 8),',
+            '      ElevatedButton(',
+            '        onPressed: () {',
+            "          final id = _ctrl.text.trim().replaceAll(' ', '');",
+            '          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }',
+            '        },',
+            '        style: ElevatedButton.styleFrom(',
+            '          backgroundColor: const Color(0xFF6366F1),',
+            '          foregroundColor: Colors.white,',
+            '          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),',
+            '          minimumSize: Size.zero,',
+            '          tapTargetSize: MaterialTapTargetSize.shrinkWrap,',
+            '          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),',
+            '          textStyle: const TextStyle(fontSize: 12),',
+            '        ),',
+            "        child: const Text('Connect'),",
+            '      ),',
+            '    ]);',
+            '  }',
+            '}',
+            '',
+            'class _FsAliasWidget extends StatefulWidget {',
+            '  const _FsAliasWidget({Key? key}) : super(key: key);',
+            '  @override',
+            '  State<_FsAliasWidget> createState() => _FsAliasWidgetState();',
+            '}',
+            'class _FsAliasWidgetState extends State<_FsAliasWidget> {',
+            '  late final TextEditingController _ctrl;',
+            '  @override',
+            '  void initState() {',
+            '    super.initState();',
+            "    _ctrl = TextEditingController(text: bind.mainGetOption(key: 'alias'));",
+            '  }',
+            '  @override',
+            '  void dispose() { _ctrl.dispose(); super.dispose(); }',
+            '  void _save() {',
+            "    bind.mainSetOption(key: 'alias', value: _ctrl.text.trim());",
+            '  }',
+            '  @override',
+            '  Widget build(BuildContext context) {',
+            '    return Row(children: [',
+            '      Expanded(child: TextField(',
+            '        controller: _ctrl,',
+            '        onSubmitted: (_) => _save(),',
+            '        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '        decoration: InputDecoration(',
+            "          hintText: 'Display name...',",
+            '          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),',
+            '          filled: true,',
+            '          fillColor: const Color(0xFF1A1A2E),',
+            '          isDense: true,',
+            '          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
+            '          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),',
+            '        ),',
+            '      )),',
+            '      const SizedBox(width: 6),',
+            '      IconButton(',
+            '        onPressed: _save,',
+            '        icon: const Icon(Icons.check, size: 18, color: Color(0xFF6366F1)),',
+            '        padding: EdgeInsets.zero,',
+            '        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),',
+            '        splashRadius: 16,',
+            '      ),',
+            '    ]);',
+            '  }',
+            '}'
+          ) -join "`n"
 
           $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
           $c = $c + $quickConnectClass
