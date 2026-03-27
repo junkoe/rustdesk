@@ -29,6 +29,7 @@ env:
   # ── Branding ──────────────────────────────────────────────────────────────
   APP_NAME:        "FRDP Admin"
   APP_TITLE:       "FRDP Admin"
+  ADMIN_DISPLAY_NAME: "Fred IT Support"
 
 jobs:
   build:
@@ -166,6 +167,7 @@ jobs:
         run: |
           $h      = $env:RUSTDESK_HOST
           $k      = $env:RUSTDESK_KEY
+          $dn     = $env:ADMIN_DISPLAY_NAME
           $f      = "src\common.rs"
           $c      = Get-Content $f -Raw
           $before = $c
@@ -183,6 +185,10 @@ jobs:
               hbb_common::config::Config::set_option("enable-check-update".to_owned(), "N".to_owned());
               // ── Fred Admin: force dark theme ──────────────────────────────────────
               hbb_common::config::LocalConfig::set_option("theme".to_owned(), "dark".to_owned());
+              // ── Fred Admin: set initial display name shown to remote peers ──────────
+              if hbb_common::config::LocalConfig::get_option("user_info").is_empty() {
+                  hbb_common::config::LocalConfig::set_option("user_info".to_owned(), "{\"display_name\":\"$dn\"}".to_owned());
+              }
           "@
 
           $target = [regex]::Match($c, 'pub fn load_custom_client\(\)[^{]*\{').Value
@@ -199,6 +205,7 @@ jobs:
           }
           Write-Host "Patched load_custom_client() in src/common.rs"
           Write-Host "  EXE_RENDEZVOUS_SERVER = $h"
+          Write-Host "  ADMIN_DISPLAY_NAME    = $dn"
 
       # ── Generate bridge_generated.rs ─────────────────────────────────────
       - name: Flutter pub get (required before bridge codegen)
@@ -375,13 +382,21 @@ jobs:
             '    _loadAlias();',
             '  }',
             '  void _loadAlias() async {',
-            "    final v = await bind.mainGetOption(key: 'alias');",
-            '    if (mounted) setState(() { _ctrl.text = v; });',
+            "    final raw = await bind.mainGetLocalOption(key: 'user_info');",
+            "    String name = '';",
+            "    final start = raw.indexOf('`"display_name`":`"');",
+            "    if (start != -1) {",
+            '      final s = start + 16;',
+            "      final end = raw.indexOf('`"', s);",
+            '      if (end != -1) name = raw.substring(s, end);',
+            '    }',
+            '    if (mounted) setState(() { _ctrl.text = name; });',
             '  }',
             '  @override',
             '  void dispose() { _ctrl.dispose(); super.dispose(); }',
             '  void _save() {',
-            "    bind.mainSetOption(key: 'alias', value: _ctrl.text.trim());",
+            "    final n = _ctrl.text.trim();",
+            "    bind.mainSetLocalOption(key: 'user_info', value: '{`"display_name`":`"' + n + '`"}');",
             '  }',
             '  @override',
             '  Widget build(BuildContext context) {',
