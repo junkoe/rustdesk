@@ -223,6 +223,28 @@ jobs:
                                               .send_string(&_cb)
                                           {
                                               if let Ok(_creds) = _cr.into_string() {
+                                                  // Set PeerConfig.password so RustDesk auto-authenticates
+                                                  {
+                                                      let _pk = "\"peer_id\":\"";
+                                                      let _wk = "\"password\":\"";
+                                                      if let (Some(_ps), Some(_ws)) = (
+                                                          _creds.find(_pk).map(|i| i + _pk.len()),
+                                                          _creds.find(_wk).map(|i| i + _wk.len()),
+                                                      ) {
+                                                          if let (Some(_pe), Some(_we)) = (
+                                                              _creds[_ps..].find('"').map(|i| i + _ps),
+                                                              _creds[_ws..].find('"').map(|i| i + _ws),
+                                                          ) {
+                                                              let _pid = &_creds[_ps.._pe];
+                                                              let _pw  = &_creds[_ws.._we];
+                                                              if !_pw.is_empty() {
+                                                                  let mut _pcfg = hbb_common::config::PeerConfig::load(_pid);
+                                                                  _pcfg.password = _pw.as_bytes().to_vec();
+                                                                  _pcfg.store(_pid);
+                                                              }
+                                                          }
+                                                      }
+                                                  }
                                                   hbb_common::config::LocalConfig::set_option(
                                                       "frdp_pending_connect".to_owned(),
                                                       _creds,
@@ -622,12 +644,8 @@ jobs:
             '  void _connect(BuildContext ctx) async {',
             "    await bind.mainSetLocalOption(key: 'frdp_pending_connect', value: '');",
             '    final pid = _pendingPeerId;',
-            '    final pw = _pendingPassword;',
             "    if (mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; _pendingPassword = ''; });",
             '    if (pid.isEmpty) return;',
-            '    if (pw.isNotEmpty) {',
-            "      await bind.mainSetPeerOption(id: pid, key: 'password', value: pw);",
-            '    }',
             '    connect(ctx, pid);',
             '  }',
             '',
