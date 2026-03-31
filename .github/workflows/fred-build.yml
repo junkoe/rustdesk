@@ -191,45 +191,52 @@ jobs:
               if hbb_common::config::LocalConfig::get_option("user_info").is_empty() {
                   hbb_common::config::LocalConfig::set_option("user_info".to_owned(), "{\"display_name\":\"$dn\"}".to_owned());
               }
-              // ── Fred Admin: connect request polling ──────────────────────────────
+              // ── Fred Admin: connect request polling (token-based) ────────────────
               {
                   let _pu = "$p".to_owned();
                   std::thread::spawn(move || {
+                      let _tk = "portal_token";
                       loop {
                           std::thread::sleep(std::time::Duration::from_secs(10));
-                          let _user = hbb_common::config::LocalConfig::get_option("portal_username");
-                          let _pass = hbb_common::config::LocalConfig::get_option("portal_password");
-                          if _user.is_empty() || _pass.is_empty() { continue; }
-                          let _body = format!(r#"{{"username":"{}","password":"{}"}}"#, _user, _pass);
-                          if let Ok(_resp) = ureq::post(&format!("{}/api/poll", _pu))
+                          let _tok = hbb_common::config::LocalConfig::get_option(_tk);
+                          if _tok.is_empty() { continue; }
+                          let _body = format!(r#"{{"token":"{}"}}"#, _tok);
+                          match ureq::post(&format!("{}/api/poll", _pu))
                               .set("Content-Type", "application/json")
                               .timeout(std::time::Duration::from_secs(8))
                               .send_string(&_body)
                           {
-                              if let Ok(_text) = _resp.into_string() {
-                                  let _req_id: Option<u64> = (|| {
-                                      let _pos = _text.find("\"id\":")?;
-                                      let _rest = _text[_pos + 5..].trim_start();
-                                      let _end = _rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(_rest.len());
-                                      if _end == 0 { return None; }
-                                      _rest[.._end].parse().ok()
-                                  })();
-                                  if let Some(_rid) = _req_id {
-                                      let _cb = format!(r#"{{"username":"{}","password":"{}"}}"#, _user, _pass);
-                                      if let Ok(_cr) = ureq::post(&format!("{}/api/connect/{}/credentials", _pu, _rid))
-                                          .set("Content-Type", "application/json")
-                                          .timeout(std::time::Duration::from_secs(8))
-                                          .send_string(&_cb)
-                                      {
-                                          if let Ok(_creds) = _cr.into_string() {
-                                              hbb_common::config::LocalConfig::set_option(
-                                                  "frdp_pending_connect".to_owned(),
-                                                  _creds,
-                                              );
+                              Ok(_resp) => {
+                                  if let Ok(_text) = _resp.into_string() {
+                                      let _req_id: Option<u64> = (|| {
+                                          let _pos = _text.find("\"id\":")?;
+                                          let _rest = _text[_pos + 5..].trim_start();
+                                          let _end = _rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(_rest.len());
+                                          if _end == 0 { return None; }
+                                          _rest[.._end].parse().ok()
+                                      })();
+                                      if let Some(_rid) = _req_id {
+                                          let _cb = format!(r#"{{"token":"{}"}}"#, _tok);
+                                          if let Ok(_cr) = ureq::post(&format!("{}/api/connect/{}/credentials", _pu, _rid))
+                                              .set("Content-Type", "application/json")
+                                              .timeout(std::time::Duration::from_secs(8))
+                                              .send_string(&_cb)
+                                          {
+                                              if let Ok(_creds) = _cr.into_string() {
+                                                  hbb_common::config::LocalConfig::set_option(
+                                                      "frdp_pending_connect".to_owned(),
+                                                      _creds,
+                                                  );
+                                              }
                                           }
                                       }
                                   }
                               }
+                              Err(ureq::Error::Status(401, _)) => {
+                                  // Token expired — clear so Flutter shows re-auth form
+                                  hbb_common::config::LocalConfig::set_option(_tk.to_owned(), String::new());
+                              }
+                              Err(_) => {}
                           }
                       }
                   });
@@ -493,16 +500,29 @@ jobs:
             Write-Host "SVG icon: replaced"
           }
 
-      # ── Inject _FsPortalWidget (credentials setup + connect notification) ──
+      # ── Inject _FsPortalWidget (token auth + connect notification) ──────────
+      # Security model:
+      #   - User enters username + password (+ TOTP if enabled) once in the setup form
+      #   - Flutter calls POST /api/auth, stores only the returned 30-day token
+      #   - No password ever written to LocalConfig
+      #   - Rust polling thread uses the token; on 401 it clears the token so this
+      #     form reappears automatically
       - name: Inject _FsPortalWidget
         shell: pwsh
         run: |
+          $portal = $env:PORTAL_URL
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           $c = Get-Content $f -Raw
 
-          # Ensure dart:async is imported
+          # Ensure required imports are present
           if ($c -notmatch "import 'dart:async'") {
             $c = "import 'dart:async';`n" + $c
+          }
+          if ($c -notmatch "import 'dart:convert'") {
+            $c = "import 'dart:convert';`n" + $c
+          }
+          if ($c -notmatch "package:http/http.dart") {
+            $c = "import 'package:http/http.dart' as rdHttp;`n" + $c
           }
 
           $cls = @(
@@ -517,13 +537,16 @@ jobs:
             "  String _pendingPeerId = '';",
             "  String _pendingLabel = '';",
             '  bool _showSetup = false;',
+            "  String _authError = '';",
+            '  bool _authing = false;',
             '  final _userCtrl = TextEditingController();',
             '  final _passCtrl = TextEditingController();',
+            '  final _totpCtrl = TextEditingController();',
             '',
             '  @override',
             '  void initState() {',
             '    super.initState();',
-            '    _checkSetup();',
+            '    _checkToken();',
             '    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());',
             '  }',
             '',
@@ -532,24 +555,60 @@ jobs:
             '    _timer?.cancel();',
             '    _userCtrl.dispose();',
             '    _passCtrl.dispose();',
+            '    _totpCtrl.dispose();',
             '    super.dispose();',
             '  }',
             '',
-            '  void _checkSetup() async {',
-            "    final u = await bind.mainGetLocalOption(key: 'portal_username');",
-            '    if (mounted) setState(() { _showSetup = u.isEmpty; });',
+            '  void _checkToken() async {',
+            "    final t = await bind.mainGetLocalOption(key: 'portal_token');",
+            '    if (mounted) setState(() { _showSetup = t.isEmpty; });',
             '  }',
             '',
-            '  void _saveCredentials() async {',
+            '  void _auth() async {',
             '    final u = _userCtrl.text.trim();',
             '    final p = _passCtrl.text;',
             '    if (u.isEmpty || p.isEmpty) return;',
-            "    await bind.mainSetLocalOption(key: 'portal_username', value: u);",
-            "    await bind.mainSetLocalOption(key: 'portal_password', value: p);",
-            '    if (mounted) setState(() { _showSetup = false; });',
+            '    if (mounted) setState(() { _authing = true; _authError = ""; });',
+            '    try {',
+            "      final body = <String, dynamic>{'username': u, 'password': p};",
+            '      final tot = _totpCtrl.text.trim();',
+            "      if (tot.isNotEmpty) body['totp_code'] = tot;",
+            "      final resp = await rdHttp.post(Uri.parse('$portal/api/auth'),",
+            "        headers: {'Content-Type': 'application/json'},",
+            '        body: jsonEncode(body),',
+            '      );',
+            '      if (resp.statusCode == 200) {',
+            "        final tn = '\"token\":\"';",
+            '        final ti = resp.body.indexOf(tn);',
+            '        if (ti != -1) {',
+            '          final s = ti + tn.length;',
+            "          final e = resp.body.indexOf('\"', s);",
+            '          if (e != -1) {',
+            "            await bind.mainSetLocalOption(key: 'portal_token', value: resp.body.substring(s, e));",
+            '            _userCtrl.clear(); _passCtrl.clear(); _totpCtrl.clear();',
+            '            if (mounted) setState(() { _showSetup = false; _authing = false; });',
+            '            return;',
+            '          }',
+            '        }',
+            "        if (mounted) setState(() { _authError = 'Unexpected response.'; _authing = false; });",
+            '      } else if (resp.statusCode == 429) {',
+            "        if (mounted) setState(() { _authError = 'Too many attempts — try again in 15 min.'; _authing = false; });",
+            '      } else {',
+            "        if (mounted) setState(() { _authError = 'Invalid credentials or TOTP code.'; _authing = false; });",
+            '      }',
+            '    } catch (_) {',
+            "      if (mounted) setState(() { _authError = 'Connection failed.'; _authing = false; });",
+            '    }',
             '  }',
             '',
             '  void _poll() async {',
+            '    // Re-check token (Rust thread clears it on 401)',
+            "    final tok = await bind.mainGetLocalOption(key: 'portal_token');",
+            '    if (tok.isEmpty) {',
+            '      if (!_showSetup && mounted) setState(() { _showSetup = true; });',
+            '      return;',
+            '    }',
+            '    if (_showSetup && mounted) setState(() { _showSetup = false; });',
             "    final raw = await bind.mainGetLocalOption(key: 'frdp_pending_connect');",
             '    if (raw.isEmpty) {',
             "      if (_pendingPeerId.isNotEmpty && mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; });",
@@ -559,18 +618,10 @@ jobs:
             "    String lbl = '';",
             "    final pidN = '\"peer_id\":\"';",
             '    final pi = raw.indexOf(pidN);',
-            '    if (pi != -1) {',
-            '      final s = pi + pidN.length;',
-            "      final e = raw.indexOf('\"', s);",
-            '      if (e != -1) pid = raw.substring(s, e);',
-            '    }',
+            '    if (pi != -1) { final s = pi + pidN.length; final e = raw.indexOf(\'"\', s); if (e != -1) pid = raw.substring(s, e); }',
             "    final mnN = '\"machine_name\":\"';",
             '    final mi = raw.indexOf(mnN);',
-            '    if (mi != -1) {',
-            '      final s = mi + mnN.length;',
-            "      final e = raw.indexOf('\"', s);",
-            '      if (e != -1) lbl = raw.substring(s, e);',
-            '    }',
+            '    if (mi != -1) { final s = mi + mnN.length; final e = raw.indexOf(\'"\', s); if (e != -1) lbl = raw.substring(s, e); }',
             "    if (lbl.isEmpty) lbl = pid;",
             '    if (pid.isNotEmpty && mounted) setState(() { _pendingPeerId = pid; _pendingLabel = lbl; });',
             '  }',
@@ -599,17 +650,24 @@ jobs:
             '      ),',
             '      child: Column(',
             '        crossAxisAlignment: CrossAxisAlignment.start,',
+            '        mainAxisSize: MainAxisSize.min,',
             '        children: [',
-            "          const Text('Portal Credentials', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
+            "          const Text('Portal Login', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
             '          const SizedBox(height: 8),',
             "          _credField(_userCtrl, 'Username'),",
             '          const SizedBox(height: 6),',
             "          _credField(_passCtrl, 'Password', obscure: true),",
+            '          const SizedBox(height: 6),',
+            "          _credField(_totpCtrl, 'TOTP code (if enabled)'),",
+            '          if (_authError.isNotEmpty) ...[',
+            '            const SizedBox(height: 6),',
+            '            Text(_authError, style: const TextStyle(fontSize: 11, color: Color(0xFFEF4444))),',
+            '          ],',
             '          const SizedBox(height: 8),',
             '          SizedBox(',
             '            width: double.infinity,',
             '            child: ElevatedButton(',
-            '              onPressed: _saveCredentials,',
+            '              onPressed: _authing ? null : _auth,',
             '              style: ElevatedButton.styleFrom(',
             '                backgroundColor: const Color(0xFF6366F1),',
             '                foregroundColor: Colors.white,',
@@ -618,7 +676,7 @@ jobs:
             '                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),',
             '                textStyle: const TextStyle(fontSize: 12),',
             '              ),',
-            "              child: const Text('Save'),",
+            "              child: Text(_authing ? 'Signing in...' : 'Sign in'),",
             '            ),',
             '          ),',
             '        ],',
@@ -630,7 +688,7 @@ jobs:
             '    return TextField(',
             '      controller: ctrl,',
             '      obscureText: obscure,',
-            '      onSubmitted: (_) => _saveCredentials(),',
+            '      onSubmitted: (_) => _auth(),',
             '      style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
             '      decoration: InputDecoration(',
             '        hintText: hint,',
@@ -658,13 +716,10 @@ jobs:
             '        children: [',
             '          const Icon(Icons.computer, color: Color(0xFF22C55E), size: 16),',
             '          const SizedBox(width: 8),',
-            '          Expanded(',
-            '            child: Text(',
-            '              _pendingLabel,',
-            '              style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-            '              overflow: TextOverflow.ellipsis,',
-            '            ),',
-            '          ),',
+            '          Expanded(child: Text(_pendingLabel,',
+            '            style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '            overflow: TextOverflow.ellipsis,',
+            '          )),',
             '          const SizedBox(width: 8),',
             '          ElevatedButton(',
             '            onPressed: () => _connect(ctx),',
@@ -688,7 +743,7 @@ jobs:
 
           $c = $c + $cls
           $c | Set-Content $f -Encoding utf8
-          Write-Host "Injected _FsPortalWidget into desktop_home_page.dart"
+          Write-Host "Injected _FsPortalWidget (token auth) into desktop_home_page.dart"
 
       # ── Admin settings tabs: General, Display, About ──────────────────────
       # Customer client locks down to General + About only.
