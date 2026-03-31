@@ -1,19 +1,14 @@
-# fred-admin-build.yml
-# Place this file in your RustDesk fork at: .github/workflows/fred-admin-build.yml
+# fred-build.yml
+# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
 #
-# Builds "Fred Admin" — the admin-side outgoing-only client with session tracking.
-# Key differences from fred-build.yml (customer client):
-#   - No incoming connections, no baked-in password
-#   - Settings: General, Display, About (not locked down)
-#   - No phone-home registration — admin is not tracked as a client
-#   - Patches remote_page.dart for session start/heartbeat/end signalling
-#   - Normal window size (not shrunk)
+# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
+# its peer ID on first launch.
 #
 # Trigger: push to master, or manually via Actions → "Run workflow"
 # Runner:  windows-2022 (free for public repos)
-# Output:  Fred_Admin.exe  (GitHub Actions artifact, 90-day retention)
+# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
 
-name: Build Fred Admin
+name: Build Fred the IT Guy
 
 on:
   push:
@@ -26,10 +21,15 @@ env:
   LLVM_VERSION:    "15.0.6"
   VCPKG_COMMIT:    "120deac3062162151622ca4860575a33844ba10b"
   PORTAL_URL:      "https://help.fredtheitguy.com"
-  # ── Branding ──────────────────────────────────────────────────────────────
-  APP_NAME:        "FRDP Admin"
-  APP_TITLE:       "FRDP Admin"
-  ADMIN_DISPLAY_NAME: "Fred IT Support"
+  # ── Branding (change these to rebrand for another deployment) ──────────────
+  APP_NAME:        "Fred the IT Guy"   # exe metadata / about screen
+  APP_TITLE:       "Fred IT Support"   # window title bar
+  SUPPORT_PHONE:   "(602) 695-9825"              # shown in the info panel
+  WEBSITE_URL:     "https://help.fredtheitguy.com" # banner click destination
+  BANNER_LABEL:    "Support Site"                   # banner main text
+  BANNER_URL_TEXT: "help.fredtheitguy.com"          # banner displayed URL
+  # Optional icon: commit a file to clients/rustdesk-build/app_icon.ico and it
+  # will automatically replace the default RustDesk icon in the build.
 
 jobs:
   build:
@@ -37,14 +37,14 @@ jobs:
     timeout-minutes: 150
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
+      # ── Checkout ──────────────────────────────────────────────────────────────
       - name: Checkout fork with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 1
 
-      # ── Cache: vcpkg binary cache ──────────────────────────────────────────
+      # ── Cache: vcpkg binary cache ──────────────────────────────────────────────
       - name: Cache vcpkg binary cache
         uses: actions/cache@v4
         with:
@@ -52,7 +52,7 @@ jobs:
           key: vcpkg-${{ env.VCPKG_COMMIT }}-x64-windows-static
           restore-keys: vcpkg-${{ env.VCPKG_COMMIT }}-
 
-      # ── Cache: Rust registry + build cache ────────────────────────────────
+      # ── Cache: Rust registry + build cache ────────────────────────────────────
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -63,7 +63,7 @@ jobs:
           key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ env.RUST_VERSION }}-
 
-      # ── Rust ────────────────────────────────────────────────────────────────
+      # ── Rust ──────────────────────────────────────────────────────────────────
       - name: Install Rust ${{ env.RUST_VERSION }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -71,7 +71,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
-      # ── LLVM ────────────────────────────────────────────────────────────────
+      # ── LLVM ──────────────────────────────────────────────────────────────────
       - name: Install LLVM ${{ env.LLVM_VERSION }}
         uses: KyleMayes/install-llvm-action@v1
         with:
@@ -81,7 +81,7 @@ jobs:
       - name: Set LIBCLANG_PATH
         run: echo "LIBCLANG_PATH=C:\llvm\bin" >> $env:GITHUB_ENV
 
-      # ── Flutter ─────────────────────────────────────────────────────────────
+      # ── Flutter ───────────────────────────────────────────────────────────────
       - name: Install Flutter ${{ env.FLUTTER_VERSION }}
         uses: subosito/flutter-action@v2
         with:
@@ -95,7 +95,7 @@ jobs:
       - name: Flutter precache (Windows)
         run: flutter precache --windows
 
-      # ── Custom Flutter engine (required for RustDesk) ─────────────────────
+      # ── Custom Flutter engine (required for RustDesk) ─────────────────────────
       - name: Download RustDesk custom Flutter engine
         run: |
           Invoke-WebRequest `
@@ -112,7 +112,7 @@ jobs:
           Copy-Item -Path "$env:TEMP\rd-engine\*" -Destination $engineDest -Force
           Write-Host "Custom engine installed to $engineDest"
 
-      # ── Flutter dropdown-menu patch (3.24.4/3.24.5) ───────────────────────
+      # ── Flutter dropdown-menu patch (3.24.4/3.24.5) ───────────────────────────
       - name: Apply Flutter dropdown patch
         run: |
           $patch = ".github\patches\flutter_3.24.4_dropdown_menu_enableFilter.diff"
@@ -127,7 +127,7 @@ jobs:
             Write-Host "Patch file not found — skipping"
           }
 
-      # ── vcpkg ───────────────────────────────────────────────────────────────
+      # ── vcpkg ─────────────────────────────────────────────────────────────────
       - name: Setup vcpkg at pinned commit
         uses: lukka/run-vcpkg@v11
         with:
@@ -143,7 +143,7 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
 
-      # ── Add ureq HTTP client ─────────────────────────────────────────────
+      # ── Add ureq HTTP client (used for phone-home registration) ─────────────────
       - name: Add ureq to Cargo.toml
         shell: pwsh
         run: |
@@ -156,58 +156,124 @@ jobs:
             Write-Host "ureq already present"
           }
 
-      # ── Patch src/common.rs: relay server + options only ─────────────────
-      # Admin client sets relay/key/options but does NOT phone-home or register
-      # as a customer client. No permanent password baked in.
-      - name: Patch src/common.rs (relay server + options)
+      # ── Patch src/common.rs: relay server + phone-home ────────────────────────
+      # WHY common.rs and not main.rs:
+      #   Flutter builds compile src/ into librustdesk.dll (library crate).
+      #   src/main.rs is a dead binary stub — fn main() never runs in a Flutter build.
+      #   The real Flutter startup path is: C++ WinMain → Dart → initialize() in
+      #   flutter_ffi.rs → load_custom_client() in common.rs.  Injecting here is the
+      #   only place that is guaranteed to execute.
+      - name: Patch src/common.rs (relay server + phone-home registration)
         shell: pwsh
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
+          RDP_PASSWORD:  ${{ secrets.RDP_PASSWORD }}
         run: |
           $h      = $env:RUSTDESK_HOST
           $k      = $env:RUSTDESK_KEY
-          $dn     = $env:ADMIN_DISPLAY_NAME
+          $p      = $env:RDP_PASSWORD
+          $portal = "${{ env.PORTAL_URL }}"
           $f      = "src\common.rs"
           $c      = Get-Content $f -Raw
           $before = $c
 
+          # Rust block injected as the first lines of load_custom_client().
+          # PowerShell expands $h, $k, $portal at workflow runtime; everything
+          # else is literal Rust source.
           $inject = @"
 
-              // ── Fred Admin: compiled-in relay server ─────────────────────────────
+              // ── Fred IT Guy: compiled-in relay server ────────────────────────────
+              // EXE_RENDEZVOUS_SERVER is priority #1 in get_rendezvous_servers() —
+              // it overrides custom-rendezvous-server, cloud push, and all fallbacks.
               *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "$h".to_owned();
               if !"$k".is_empty() {
                   hbb_common::config::Config::set_option("key".to_owned(), "$k".to_owned());
               }
-              // ── Fred Admin: allow remote config modification ──────────────────────
+              // ── Fred IT Guy: remote admin can push config changes when connected ──
               hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
-              // ── Fred Admin: disable update check notifications ────────────────────
+              // ── Fred IT Guy: disable update check notifications ───────────────
               hbb_common::config::Config::set_option("enable-check-update".to_owned(), "N".to_owned());
-              // ── Fred Admin: force dark theme ──────────────────────────────────────
+              // ── Fred IT Guy: force dark theme ─────────────────────────────────
               hbb_common::config::LocalConfig::set_option("theme".to_owned(), "dark".to_owned());
-              // ── Fred Admin: set initial display name shown to remote peers ──────────
-              if hbb_common::config::LocalConfig::get_option("user_info").is_empty() {
-                  hbb_common::config::LocalConfig::set_option("user_info".to_owned(), "{\"display_name\":\"$dn\"}".to_owned());
+              // ── Fred IT Guy: permanent password + both-mode verification ──────────
+              // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
+              // End user can still accept one-time sessions via the prompt.
+              if !"$p".is_empty() {
+                  hbb_common::config::Config::set_permanent_password("$p");
+                  hbb_common::config::Config::set_option("verification-method".to_owned(), "use-both-passwords".to_owned());
               }
+              // ── Fred IT Guy: phone-home registration ─────────────────────────────
+              // Spawns a background thread; waits 10 s for the peer ID to appear
+              // (requires hbbs to be reachable), then POSTs to the portal once.
+              std::thread::spawn(|| {
+                  std::thread::sleep(std::time::Duration::from_secs(10));
+                  let id = hbb_common::config::Config::get_id();
+                  if id.is_empty() { return; }
+                  let machine = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Unknown".to_owned());
+                  let id_c   = id.replace('"', "");
+                  let name_c = machine.replace('"', "").replace('\\', "");
+                  let body   = format!(
+                      r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
+                      id_c, name_c
+                  );
+                  // Initial registration (retry up to 3 times)
+                  for attempt in 0..3u8 {
+                      if let Ok(resp) = ureq::post(&format!("{}/api/register", "$portal"))
+                          .set("Content-Type", "application/json")
+                          .timeout(std::time::Duration::from_secs(10))
+                          .send_string(&body) {
+                          if resp.status() < 400 { break; }
+                      }
+                      if attempt < 2 { std::thread::sleep(std::time::Duration::from_secs(60)); }
+                  }
+                  // Heartbeat loop — keeps client status 'online' in the portal
+                  // and handles server-pushed password rotations.
+                  let hb_body = format!(r#"{{"client_id":"{}"}}"#, id_c);
+                  loop {
+                      std::thread::sleep(std::time::Duration::from_secs(60));
+                      if let Ok(resp) = ureq::post(&format!("{}/api/heartbeat", "$portal"))
+                          .set("Content-Type", "application/json")
+                          .timeout(std::time::Duration::from_secs(10))
+                          .send_string(&hb_body)
+                      {
+                          if let Ok(body) = resp.into_string() {
+                              if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                                  if let Some(pw) = json.get("new_password").and_then(|v| v.as_str()) {
+                                      hbb_common::config::Config::set_permanent_password(pw);
+                                      let confirm = format!(r#"{{"client_id":"{}"}}"#, id_c);
+                                      let _ = ureq::post(&format!("{}/api/device/password-applied", "$portal"))
+                                          .set("Content-Type", "application/json")
+                                          .timeout(std::time::Duration::from_secs(10))
+                                          .send_string(&confirm);
+                                  }
+                              }
+                          }
+                      }
+                  }
+              });
           "@
 
+          # Use String.Replace() rather than -replace regex to avoid
+          # backreference escaping issues with the multi-line $inject.
           $target = [regex]::Match($c, 'pub fn load_custom_client\(\)[^{]*\{').Value
           if (!$target) {
             Write-Error "load_custom_client() not found in $f — function may have been renamed"
+            Select-String -Path $f -Pattern "load_custom_client" | Select-Object -First 5 | % { Write-Host $_.Line }
             exit 1
           }
           $c = $c.Replace($target, $target + $inject)
           $c | Set-Content $f -Encoding utf8
 
           if ($c -eq $before) {
-            Write-Error "src/common.rs was not modified"
+            Write-Error "src/common.rs was not modified — String.Replace() found no match"
             exit 1
           }
           Write-Host "Patched load_custom_client() in src/common.rs"
           Write-Host "  EXE_RENDEZVOUS_SERVER = $h"
-          Write-Host "  ADMIN_DISPLAY_NAME    = $dn"
+          Write-Host "  Portal = $portal"
 
-      # ── Generate bridge_generated.rs ─────────────────────────────────────
+      # ── Generate bridge_generated.rs (required, missing from fork) ────────────
       - name: Flutter pub get (required before bridge codegen)
         run: flutter pub get
         working-directory: flutter
@@ -223,16 +289,18 @@ jobs:
             --dart-output flutter/lib/generated_bridge.dart
           Write-Host "bridge_generated.rs created"
 
-      # ── Python build deps ─────────────────────────────────────────────────
+      # ── Python build deps ─────────────────────────────────────────────────────
       - name: Install Python build dependencies
         run: python -m pip install --quiet requests argparse
 
-      # ── Branding ─────────────────────────────────────────────────────────
+      # ── Branding ──────────────────────────────────────────────────────────────
+      # All values driven from env: block at the top — change those to rebrand.
       - name: Apply branding
         shell: pwsh
         run: |
           $name   = "${{ env.APP_NAME }}"
           $title  = "${{ env.APP_TITLE }}"
+          $portal = "${{ env.PORTAL_URL }}"
 
           # 1. Window title (C++ runner)
           $f = "flutter\windows\runner\main.cpp"
@@ -240,7 +308,7 @@ jobs:
             Set-Content $f -Encoding utf8
           Write-Host "main.cpp: window title → $title"
 
-          # 2. Exe metadata
+          # 2. Exe metadata (right-click → Properties)
           $f = "flutter\windows\runner\Runner.rc"
           $bytes = [System.IO.File]::ReadAllBytes($f)
           $enc = if ($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { [System.Text.Encoding]::Unicode } else { [System.Text.Encoding]::UTF8 }
@@ -248,13 +316,44 @@ jobs:
           $c = $c -replace 'VALUE "FileDescription", "RustDesk[^"]*"', "VALUE `"FileDescription`", `"$name`""
           $c = $c -replace 'VALUE "ProductName", "RustDesk[^"]*"',     "VALUE `"ProductName`", `"$name`""
           [System.IO.File]::WriteAllText($f, $c, $enc)
-          Write-Host "Runner.rc: product name → $name"
+          Write-Host "Runner.rc: product name → $name (encoding: $($enc.EncodingName))"
 
-          # 3. Hide update notification card + replace right panel with admin notes panel
+          # 3. Clear the promo tip text (widget becomes invisible)
+          $f = "src\lang\en.rs"
+          (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}"Help Desk"' |
+            Set-Content $f -Encoding utf8
+          Write-Host "en.rs: setup_server_tip → Help Desk"
+
+          # 4. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
+          if (Test-Path "assets\app_icon.ico") {
+            # Flutter app icon (taskbar, inner exe)
+            Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
+            # Portable launcher icon (exe file icon in Explorer)
+            Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
+            Write-Host "Icon: replaced (Flutter + portable launcher)"
+          } else {
+            Write-Host "No icon found at assets/app_icon.ico — using default"
+          }
+
+          # 5. In-app title bar SVG icon
+          if (Test-Path "assets\polished_logo.svg") {
+            Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
+            Write-Host "SVG icon: replaced"
+          } else {
+            Write-Host "No SVG found at assets/polished_logo.svg — using default"
+          }
+
+      # ── Restrictions: incoming-only + lock local settings ────────────────────
+      - name: Apply restrictions (incoming-only, lock settings)
+        shell: pwsh
+        run: |
+          # 1. Replace right panel with branded info panel
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           $c = Get-Content $f -Raw
-          $c = $c -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false'
-
+          $phone          = "${{ env.SUPPORT_PHONE }}"
+          $websiteUrl     = "${{ env.WEBSITE_URL }}"
+          $bannerLabel    = "${{ env.BANNER_LABEL }}"
+          $bannerUrlText  = "${{ env.BANNER_URL_TEXT }}"
           $panel = @(
             'Expanded(',
             '              child: Container(',
@@ -262,51 +361,94 @@ jobs:
             '                  color: Color(0xFF242424),',
             '                  border: Border(left: BorderSide(color: Color(0xFF2D2D2D))),',
             '                ),',
-            '                padding: EdgeInsets.all(20),',
+            '                padding: EdgeInsets.all(24),',
             '                child: Column(',
+            '                  mainAxisAlignment: MainAxisAlignment.start,',
             '                  crossAxisAlignment: CrossAxisAlignment.start,',
             '                  children: [',
             '                    Row(children: [',
-            '                      Icon(Icons.admin_panel_settings_outlined, color: Color(0xFF6366F1), size: 18),',
+            '                      Icon(Icons.headset_mic_outlined, color: Color(0xFF6366F1), size: 20),',
             '                      SizedBox(width: 8),',
-            "                      Text('FRDP Admin', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFFF1F5F9))),",
+            "                      Text('Fred the IT Guy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFFF1F5F9))),",
             '                    ]),',
-            '                    SizedBox(height: 8),',
-            "                    _FsAliasWidget(),",
-            '                    SizedBox(height: 16),',
-            "                    Text('Quick Connect', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
-            '                    SizedBox(height: 8),',
-            '                    _FsQuickConnectWidget(),',
-            '                    SizedBox(height: 16),',
+            '                    SizedBox(height: 20),',
+            "                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFFCBD5E1))),",
+            '                    SizedBox(height: 12),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
+            '                    ]),',
+            '                    SizedBox(height: 6),',
+            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
+            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
+            '                      SizedBox(width: 8),',
+            "                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
+            '                    ]),',
+            '                    SizedBox(height: 20),',
             '                    Divider(color: Color(0xFF2D2D2D)),',
             '                    SizedBox(height: 12),',
-            "                    Text('Scratch Pad', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
+            "                    Text('Need help? Contact:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFFCBD5E1))),",
             '                    SizedBox(height: 8),',
+            '                    Row(children: [',
+            '                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),',
+            '                      SizedBox(width: 8),',
+            "                      Text('$phone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFFF1F5F9))),",
+            '                    ]),',
+            '                    SizedBox(height: 16),',
             '                    Expanded(',
-            '                      child: TextField(',
-            '                        maxLines: null,',
-            '                        expands: true,',
-            '                        textAlignVertical: TextAlignVertical.top,',
-            '                        style: TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-            '                        decoration: InputDecoration(',
-            "                          hintText: 'General notes...',",
-            '                          hintStyle: TextStyle(color: Color(0xFF475569), fontSize: 12),',
-            '                          filled: true,',
-            '                          fillColor: Color(0xFF1A1A2E),',
-            '                          border: OutlineInputBorder(',
-            '                            borderRadius: BorderRadius.circular(6),',
-            '                            borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
+            '                      child: MouseRegion(',
+            '                        cursor: SystemMouseCursors.click,',
+            '                        child: GestureDetector(',
+            "                          onTap: () => launchUrl(Uri.parse('$websiteUrl')),",
+            '                          child: Container(',
+            '                            width: double.infinity,',
+            '                            decoration: BoxDecoration(',
+            '                              gradient: LinearGradient(',
+            '                                begin: Alignment.topLeft,',
+            '                                end: Alignment.bottomRight,',
+            '                                colors: [Color(0xFF4338CA), Color(0xFF312E81)],',
+            '                              ),',
+            '                              borderRadius: BorderRadius.circular(8),',
+            '                            ),',
+            '                            child: Column(',
+            '                              mainAxisAlignment: MainAxisAlignment.center,',
+            '                              children: [',
+            '                                Icon(Icons.language_outlined, color: Color(0xFF6366F1), size: 22),',
+            '                                SizedBox(height: 6),',
+            '                                Row(mainAxisSize: MainAxisSize.min, children: [',
+            "                                  Text('$bannerLabel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFFFFFFF))),",
+            '                                  SizedBox(width: 4),',
+            '                                  Icon(Icons.open_in_new, color: Color(0xCCFFFFFF), size: 13),',
+            '                                ]),',
+            '                                SizedBox(height: 4),',
+            "                                Text('$bannerUrlText', style: TextStyle(fontSize: 11, color: Color(0xB3FFFFFF))),",
+            '                              ],',
+            '                            ),',
             '                          ),',
-            '                          enabledBorder: OutlineInputBorder(',
-            '                            borderRadius: BorderRadius.circular(6),',
-            '                            borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
-            '                          ),',
-            '                          focusedBorder: OutlineInputBorder(',
-            '                            borderRadius: BorderRadius.circular(6),',
-            '                            borderSide: BorderSide(color: Color(0xFF6366F1)),',
-            '                          ),',
-            '                          contentPadding: EdgeInsets.all(10),',
             '                        ),',
+            '                      ),',
+            '                    ),',
+            '                    SizedBox(height: 12),',
+            '                    Container(',
+            '                      height: 16,',
+            '                      decoration: BoxDecoration(',
+            '                        gradient: LinearGradient(',
+            '                          colors: [Color(0xFF252350), Color(0xFF1A1840)],',
+            '                        ),',
+            '                        borderRadius: BorderRadius.circular(4),',
             '                      ),',
             '                    ),',
             '                  ],',
@@ -314,144 +456,29 @@ jobs:
             '              ),',
             '            )'
           ) -join "`n"
-
-          $quickConnectClass = @(
-            '',
-            'class _FsQuickConnectWidget extends StatefulWidget {',
-            '  const _FsQuickConnectWidget({Key? key}) : super(key: key);',
-            '  @override',
-            '  State<_FsQuickConnectWidget> createState() => _FsQuickConnectWidgetState();',
-            '}',
-            'class _FsQuickConnectWidgetState extends State<_FsQuickConnectWidget> {',
-            '  final TextEditingController _ctrl = TextEditingController();',
-            '  @override',
-            '  void dispose() { _ctrl.dispose(); super.dispose(); }',
-            '  @override',
-            '  Widget build(BuildContext context) {',
-            '    return Row(children: [',
-            '      Expanded(child: TextField(',
-            '        controller: _ctrl,',
-            '        onSubmitted: (v) {',
-            "          final id = v.trim().replaceAll(' ', '');",
-            '          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }',
-            '        },',
-            '        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-            '        decoration: InputDecoration(',
-            "          hintText: 'Peer ID...',",
-            '          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),',
-            '          filled: true,',
-            '          fillColor: const Color(0xFF1A1A2E),',
-            '          isDense: true,',
-            '          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
-            '          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
-            '          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
-            '          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),',
-            '        ),',
-            '      )),',
-            '      const SizedBox(width: 8),',
-            '      ElevatedButton(',
-            '        onPressed: () {',
-            "          final id = _ctrl.text.trim().replaceAll(' ', '');",
-            '          if (id.isNotEmpty) { connect(context, id); _ctrl.clear(); }',
-            '        },',
-            '        style: ElevatedButton.styleFrom(',
-            '          backgroundColor: const Color(0xFF6366F1),',
-            '          foregroundColor: Colors.white,',
-            '          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),',
-            '          minimumSize: Size.zero,',
-            '          tapTargetSize: MaterialTapTargetSize.shrinkWrap,',
-            '          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),',
-            '          textStyle: const TextStyle(fontSize: 12),',
-            '        ),',
-            "        child: const Text('Connect'),",
-            '      ),',
-            '    ]);',
-            '  }',
-            '}',
-            '',
-            'class _FsAliasWidget extends StatefulWidget {',
-            '  const _FsAliasWidget({Key? key}) : super(key: key);',
-            '  @override',
-            '  State<_FsAliasWidget> createState() => _FsAliasWidgetState();',
-            '}',
-            'class _FsAliasWidgetState extends State<_FsAliasWidget> {',
-            '  final TextEditingController _ctrl = TextEditingController();',
-            '  @override',
-            '  void initState() {',
-            '    super.initState();',
-            '    _loadAlias();',
-            '  }',
-            '  void _loadAlias() async {',
-            "    final raw = await bind.mainGetLocalOption(key: 'user_info');",
-            "    String name = '';",
-            "    final start = raw.indexOf('`"display_name`":`"');",
-            "    if (start != -1) {",
-            '      final s = start + 16;',
-            "      final end = raw.indexOf('`"', s);",
-            '      if (end != -1) name = raw.substring(s, end);',
-            '    }',
-            '    if (mounted) setState(() { _ctrl.text = name; });',
-            '  }',
-            '  @override',
-            '  void dispose() { _ctrl.dispose(); super.dispose(); }',
-            '  void _save() {',
-            "    final n = _ctrl.text.trim();",
-            "    bind.mainSetLocalOption(key: 'user_info', value: '{`"display_name`":`"' + n + '`"}');",
-            '  }',
-            '  @override',
-            '  Widget build(BuildContext context) {',
-            '    return Row(children: [',
-            '      Expanded(child: TextField(',
-            '        controller: _ctrl,',
-            '        onSubmitted: (_) => _save(),',
-            '        style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-            '        decoration: InputDecoration(',
-            "          hintText: 'Display name...',",
-            '          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),',
-            '          filled: true,',
-            '          fillColor: const Color(0xFF1A1A2E),',
-            '          isDense: true,',
-            '          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
-            '          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
-            '          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
-            '          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),',
-            '        ),',
-            '      )),',
-            '      const SizedBox(width: 6),',
-            '      IconButton(',
-            '        onPressed: _save,',
-            '        icon: const Icon(Icons.check, size: 18, color: Color(0xFF6366F1)),',
-            '        padding: EdgeInsets.zero,',
-            '        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),',
-            '        splashRadius: 16,',
-            '      ),',
-            '    ]);',
-            '  }',
-            '}'
-          ) -join "`n"
-
           $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
-          $c = $c + $quickConnectClass
           $c | Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: update card hidden + admin panel with quick connect injected"
+          Write-Host "desktop_home_page.dart: right panel replaced with info panel"
 
-          # 4. Icon — admin clients share the same branding assets
-          if (Test-Path "assets\app_icon.ico") {
-            Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
-            Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
-            Write-Host "Icon: replaced"
-          }
-          if (Test-Path "assets\polished_logo.svg") {
-            Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
-            Write-Host "SVG icon: replaced"
+          # Ensure url_launcher is imported (needed for banner tap handler)
+          # Check for the specific launchUrl import, not just any url_launcher reference
+          $c = Get-Content $f -Raw
+          if ($c -notmatch "import 'package:url_launcher/url_launcher.dart'") {
+            $c = "import 'package:url_launcher/url_launcher.dart';`n" + $c
+            $c | Set-Content $f -Encoding utf8
+            Write-Host "desktop_home_page.dart: added url_launcher import"
+          } else {
+            Write-Host "desktop_home_page.dart: url_launcher already imported"
           }
 
-      # ── Admin settings tabs: General, Display, About ──────────────────────
-      # Customer client locks down to General + About only.
-      # Admin needs Display settings (codec, resolution, DPI) for remote work.
-      - name: Configure settings tabs (General, Display, About)
-        shell: pwsh
-        run: |
+          # 2. Hide update notification card (belt-and-suspenders alongside Rust config option)
+          $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
+          (Get-Content $f -Raw) -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false' |
+            Set-Content $f -Encoding utf8
+          Write-Host "desktop_home_page.dart: update notification card hidden"
+
+          # 3. Settings tabs — keep only General and About
+          # Hides Security, Network, Display, Printer so end user can't change permissions or server
           $f = "flutter\lib\desktop\pages\desktop_setting_page.dart"
           $c = Get-Content $f -Raw
           $before = $c
@@ -460,330 +487,35 @@ jobs:
           if ($startIdx -ge 0) {
             $endIdx = $c.IndexOf('];', $startIdx)
             if ($endIdx -ge 0) {
-              $newList = $startMark + "`n    SettingsTabKey.general,`n    SettingsTabKey.display,`n    SettingsTabKey.about,`n  ];"
+              $newList = $startMark + "`n    SettingsTabKey.general,`n    SettingsTabKey.about,`n  ];"
               $c = $c.Substring(0, $startIdx) + $newList + $c.Substring($endIdx + 2)
             }
           }
           $c | Set-Content $f -Encoding utf8
           if ($c -eq $before) {
-            Write-Host "Warning: tabKeys pattern not matched — tabs unchanged"
+            Write-Host "Warning: tabKeys pattern not matched in desktop_setting_page.dart — tabs unchanged"
           } else {
-            Write-Host "desktop_setting_page.dart: settings tabs → General, Display, About"
+            Write-Host "desktop_setting_page.dart: settings tabs reduced to General + About"
           }
 
-      # ── Patch remote_page.dart: session tracking + draggable notes overlay ──────
-      # Injects:
-      #   1. _FsNotesOverlayWidget — draggable icon/panel (floating, no screen resize)
-      #      Collapsed: small indigo notepad icon, draggable to any position
-      #      Expanded:  notes panel with header (tap header to collapse), draggable
-      #   2. Session start/heartbeat/end into _RemotePageState
-      - name: Patch remote_page.dart (session tracking)
+      # ── Window size ───────────────────────────────────────────────────────────
+      - name: Shrink default window width
         shell: pwsh
         run: |
-          $portal = "${{ env.PORTAL_URL }}"
-          $f = "flutter\lib\desktop\pages\remote_page.dart"
-          if (!(Test-Path $f)) {
-            Write-Host "remote_page.dart not found at expected path — searching..."
-            Get-ChildItem -Recurse -Filter "*remote_page*" flutter\lib | Select-Object FullName
-            Write-Error "Cannot find remote_page.dart — update path in workflow"
-            exit 1
-          }
+          $f = "flutter\lib\common.dart"
           $c = Get-Content $f -Raw
           $before = $c
-
-          # Add required imports if not already present
-          if ($c -notmatch "import 'dart:convert'") {
-            $c = "import 'dart:convert';`n" + $c
-          }
-          if ($c -notmatch "import 'dart:async'") {
-            $c = "import 'dart:async';`n" + $c
-          }
-          if ($c -notmatch "package:http/http.dart") {
-            $c = "import 'package:http/http.dart' as rdHttp;`n" + $c
-          }
-
-          $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
-          if ($classStart -lt 0) {
-            Write-Host "Warning: _RemotePageState not found — session tracking not injected"
-          } else {
-            # ── 1. Inject draggable overlay StatefulWidget before _RemotePageState ────
-            # Array-join: single-quoted PS strings for Dart code (no PS interpolation).
-            # Lines with Dart single-quoted strings use double-quoted PS strings.
-            $helperClass = @(
-              '// ── Fred Admin: draggable overlay widget (reused for scratch pad + session log) ──',
-              'class _FsOverlayWidget extends StatefulWidget {',
-              '  final TextEditingController controller;',
-              '  final String title;',
-              '  final IconData icon;',
-              '  final Color accentColor;',
-              '  final double initOffsetBottom;',
-              '  const _FsOverlayWidget({required this.controller, required this.title, required this.icon, this.accentColor = const Color(0xFF6366F1), this.initOffsetBottom = 60});',
-              '  @override',
-              '  State<_FsOverlayWidget> createState() => _FsOverlayWidgetState();',
-              '}',
-              '',
-              'class _FsOverlayWidgetState extends State<_FsOverlayWidget> {',
-              '  double _x = 0;',
-              '  double _y = 0;',
-              '  bool _expanded = false;',
-              '  bool _placed = false;',
-              '',
-              '  @override',
-              '  void initState() {',
-              '    super.initState();',
-              '    WidgetsBinding.instance.addPostFrameCallback((_) {',
-              '      if (!mounted) return;',
-              '      final sz = MediaQuery.of(context).size;',
-              '      setState(() {',
-              '        _x = sz.width - 60;',
-              '        _y = sz.height - widget.initOffsetBottom;',
-              '        _placed = true;',
-              '      });',
-              '    });',
-              '  }',
-              '',
-              '  @override',
-              '  Widget build(BuildContext context) {',
-              '    if (!_placed) return const SizedBox.shrink();',
-              '    return Positioned(',
-              '      left: _x,',
-              '      top: _y,',
-              '      child: GestureDetector(',
-              '        onPanUpdate: (d) => setState(() {',
-              '          _x += d.delta.dx;',
-              '          _y += d.delta.dy;',
-              '        }),',
-              '        child: Material(',
-              '          color: Colors.transparent,',
-              '          child: _expanded ? _buildPanel() : _buildIcon(),',
-              '        ),',
-              '      ),',
-              '    );',
-              '  }',
-              '',
-              '  Widget _buildIcon() {',
-              '    return GestureDetector(',
-              "      onTap: () => setState(() { _expanded = true; }),",
-              '      child: Container(',
-              '        width: 44,',
-              '        height: 44,',
-              '        decoration: BoxDecoration(',
-              '          color: widget.accentColor,',
-              '          borderRadius: BorderRadius.circular(22),',
-              '          boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 2))],',
-              '        ),',
-              '        child: Icon(widget.icon, color: Colors.white, size: 22),',
-              '      ),',
-              '    );',
-              '  }',
-              '',
-              '  Widget _buildPanel() {',
-              '    return Container(',
-              '      width: 260,',
-              '      decoration: BoxDecoration(',
-              '        color: Color(0xFF1E1E2E),',
-              '        borderRadius: BorderRadius.circular(8),',
-              '        border: Border.all(color: Color(0xFF2D2D2D)),',
-              '        boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2))],',
-              '      ),',
-              '      child: Column(',
-              '        mainAxisSize: MainAxisSize.min,',
-              '        children: [',
-              '          GestureDetector(',
-              "            onTap: () => setState(() { _expanded = false; }),",
-              '            child: Container(',
-              '              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
-              '              decoration: BoxDecoration(',
-              '                color: Color(0xFF2D2D3E),',
-              '                borderRadius: BorderRadius.only(',
-              '                  topLeft: Radius.circular(8),',
-              '                  topRight: Radius.circular(8),',
-              '                ),',
-              '              ),',
-              '              child: Row(',
-              '                children: [',
-              '                  Icon(widget.icon, color: widget.accentColor, size: 16),',
-              '                  SizedBox(width: 6),',
-              '                  Expanded(',
-              '                    child: Text(',
-              '                      widget.title,',
-              '                      style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),',
-              '                      overflow: TextOverflow.ellipsis,',
-              '                    ),',
-              '                  ),',
-              '                  Icon(Icons.expand_more, color: Color(0xFF64748B), size: 16),',
-              '                ],',
-              '              ),',
-              '            ),',
-              '          ),',
-              '          Padding(',
-              '            padding: EdgeInsets.all(10),',
-              '            child: SizedBox(',
-              '              height: 120,',
-              '              child: TextField(',
-              '                controller: widget.controller,',
-              '                maxLines: null,',
-              '                expands: true,',
-              '                textAlignVertical: TextAlignVertical.top,',
-              '                style: TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
-              '                decoration: InputDecoration(',
-              "                  hintText: 'Notes...',",
-              '                  hintStyle: TextStyle(color: Color(0xFF475569), fontSize: 12),',
-              '                  filled: true,',
-              '                  fillColor: Color(0xFF0F0F1A),',
-              '                  border: OutlineInputBorder(',
-              '                    borderRadius: BorderRadius.circular(4),',
-              '                    borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
-              '                  ),',
-              '                  enabledBorder: OutlineInputBorder(',
-              '                    borderRadius: BorderRadius.circular(4),',
-              '                    borderSide: BorderSide(color: Color(0xFF2D2D2D)),',
-              '                  ),',
-              '                  focusedBorder: OutlineInputBorder(',
-              '                    borderRadius: BorderRadius.circular(4),',
-              '                    borderSide: BorderSide(color: widget.accentColor),',
-              '                  ),',
-              '                  contentPadding: EdgeInsets.all(8),',
-              '                ),',
-              '              ),',
-              '            ),',
-              '          ),',
-              '        ],',
-              '      ),',
-              '    );',
-              '  }',
-              '}',
-              ''
-            ) -join "`n"
-
-            # Find opening brace of _RemotePageState before inserting helper class.
-            # If we inserted the helper first, super.initState() regex would hit _FsNotesOverlayWidgetState instead.
-            $openBrace = $c.IndexOf('{', $classStart)
-
-            # ── 2. Inject session fields + methods into _RemotePageState ──────────────
-            $dartInject = @(
-              '',
-              '  // ── Fred Admin: session tracking ───────────────────────────────────────────',
-              '  String? _fsSessionId;',
-              '  Timer? _fsHeartbeatTimer;',
-              '  OverlayEntry? _fsScratchOverlay;',
-              '  OverlayEntry? _fsSessionLogOverlay;',
-              '  final TextEditingController _fsScratchController = TextEditingController();',
-              '  final TextEditingController _fsSessionLogController = TextEditingController();',
-              '',
-              '  void _fsShowOverlays() {',
-              '    _fsScratchOverlay?.remove();',
-              '    _fsSessionLogOverlay?.remove();',
-              '    final now = DateTime.now();',
-              "    final mo = now.month.toString().padLeft(2, '0');",
-              "    final dy = now.day.toString().padLeft(2, '0');",
-              "    final hr = now.hour.toString().padLeft(2, '0');",
-              "    final mn = now.minute.toString().padLeft(2, '0');",
-              "    final timeStr = mo + '/' + dy + '/' + now.year.toString() + ' ' + hr + ':' + mn;",
-              '    _fsScratchOverlay = OverlayEntry(',
-              '      builder: (ctx) => _FsOverlayWidget(',
-              '        controller: _fsScratchController,',
-              "        title: 'Scratch \u00b7 ' + widget.id,",
-              '        icon: Icons.sticky_note_2,',
-              '        accentColor: Color(0xFF6366F1),',
-              '        initOffsetBottom: 60,',
-              '      ),',
-              '    );',
-              '    _fsSessionLogOverlay = OverlayEntry(',
-              '      builder: (ctx) => _FsOverlayWidget(',
-              '        controller: _fsSessionLogController,',
-              "        title: 'Log \u00b7 ' + widget.id + '  ' + timeStr,",
-              '        icon: Icons.work_outline,',
-              '        accentColor: Color(0xFFF59E0B),',
-              '        initOffsetBottom: 120,',
-              '      ),',
-              '    );',
-              '    WidgetsBinding.instance.addPostFrameCallback((_) {',
-              '      if (mounted) {',
-              '        try {',
-              '          final ov = Overlay.of(context);',
-              '          ov.insert(_fsScratchOverlay!);',
-              '          ov.insert(_fsSessionLogOverlay!);',
-              "        } catch (_) {}",
-              '      }',
-              '    });',
-              '  }',
-              '',
-              '  void _fsStartSession() async {',
-              '    await Future.delayed(const Duration(seconds: 2));',
-              '    try {',
-              "      final resp = await rdHttp.post(",
-              "        Uri.parse('$portal/api/session/start'),",
-              "        headers: {'Content-Type': 'application/json'},",
-              "        body: jsonEncode({'peer_id': widget.id}),",
-              '      );',
-              '      if (resp.statusCode == 200) {',
-              '        final data = jsonDecode(resp.body) as Map<String, dynamic>;',
-              "        _fsSessionId = data['session_id'].toString();",
-              '        _fsHeartbeatTimer = Timer.periodic(',
-              '          const Duration(seconds: 30),',
-              '          (_) => _fsSendHeartbeat(),',
-              '        );',
-              '        _fsShowOverlays();',
-              '      }',
-              '    } catch (_) {}',
-              '  }',
-              '',
-              '  void _fsSendHeartbeat() async {',
-              '    final sid = _fsSessionId;',
-              '    if (sid == null) return;',
-              '    try {',
-              "      await rdHttp.post(",
-              "        Uri.parse('$portal/api/session/heartbeat'),",
-              "        headers: {'Content-Type': 'application/json'},",
-              "        body: jsonEncode({'session_id': int.parse(sid)}),",
-              '      );',
-              '    } catch (_) {}',
-              '  }',
-              '',
-              '  void _fsEndSession() {',
-              '    _fsHeartbeatTimer?.cancel();',
-              '    _fsHeartbeatTimer = null;',
-              '    _fsScratchOverlay?.remove();',
-              '    _fsScratchOverlay = null;',
-              '    _fsSessionLogOverlay?.remove();',
-              '    _fsSessionLogOverlay = null;',
-              '    final sid = _fsSessionId;',
-              '    if (sid == null) return;',
-              '    _fsSessionId = null;',
-              "    final notes = _fsSessionLogController.text.trim().isEmpty ? null : _fsSessionLogController.text.trim();",
-              "    rdHttp.post(",
-              "      Uri.parse('$portal/api/session/end'),",
-              "      headers: {'Content-Type': 'application/json'},",
-              "      body: jsonEncode({'session_id': int.parse(sid), 'notes': notes}),",
-              '    );',
-              '  }',
-              '  // ── end Fred Admin session tracking ──────────────────────────────────────────',
-              ''
-            ) -join "`n"
-
-            $c = $c.Substring(0, $openBrace + 1) + $dartInject + $c.Substring($openBrace + 1)
-
-            # Patch super.initState/dispose now — helper class not yet injected,
-            # so the first occurrences are unambiguously in _RemotePageState.
-            $c = [regex]::Replace($c, [regex]::Escape("super.initState();"), "super.initState();`n    _fsStartSession();", 1)
-            $c = [regex]::Replace($c, [regex]::Escape("super.dispose();"), "_fsEndSession();`n    _fsScratchController.dispose();`n    _fsSessionLogController.dispose();`n    super.dispose();", 1)
-
-            # ── 3. LAST: inject helper class before _RemotePageState ──────────────────
-            # Re-find position after dartInject shifted the file contents.
-            $classStart = $c.IndexOf('class _RemotePageState extends State<RemotePage>')
-            $c = $c.Substring(0, $classStart) + $helperClass + "`n" + $c.Substring($classStart)
-
-            Write-Host "remote_page.dart: scratch pad + session log overlays injected"
-          }
-
+          # Default main window is 1280x720 — shrink to 500x600 to fit our custom info panel.
+          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )1280', '${1}500'
+          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )720',  '${1}600'
           $c | Set-Content $f -Encoding utf8
-
           if ($c -eq $before) {
-            Write-Host "Warning: remote_page.dart was not modified"
+            Write-Host "Warning: window size patterns not matched — skipping"
+          } else {
+            Write-Host "common.dart: default window size 1280x720 → 500x600"
           }
 
-      # ── Build ─────────────────────────────────────────────────────────────
+      # ── Build ─────────────────────────────────────────────────────────────────
       - name: Build RustDesk (Flutter + Rust)
         run: python .\build.py --portable --hwcodec --flutter --vram
         env:
@@ -791,10 +523,14 @@ jobs:
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
           LIBCLANG_PATH: C:\llvm\bin
 
-      # ── Collect and rename output ─────────────────────────────────────────
+      # ── Collect and rename output ─────────────────────────────────────────────
       - name: Collect output exe
         shell: pwsh
         run: |
+          Write-Host "=== Build outputs ==="
+          Get-ChildItem "*.exe" -ErrorAction SilentlyContinue | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+          # Prefer portable; fall back to installer (both contain the full app)
           $src = $null
           $kind = ""
 
@@ -806,23 +542,23 @@ jobs:
             $installer = Get-ChildItem "rustdesk-*-install.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($installer) {
               $src  = $installer.FullName
-              $kind = "installer"
+              $kind = "installer (portable build failed — deploy with /S for silent install)"
             }
           }
 
           if ($src) {
-            Copy-Item $src "Fred_Admin.exe" -Force
-            $mb = [math]::Round((Get-Item "Fred_Admin.exe").Length/1MB, 1)
-            Write-Host "Collected Fred_Admin.exe ($mb MB) [$kind]"
+            Copy-Item $src "Fred_the_IT_Guy.exe" -Force
+            $mb = [math]::Round((Get-Item "Fred_the_IT_Guy.exe").Length/1MB, 1)
+            Write-Host "Collected Fred_the_IT_Guy.exe ($mb MB) [$kind]"
           } else {
             Write-Error "No output exe found — check build logs above"
           }
 
-      # ── Upload artifact ───────────────────────────────────────────────────
-      - name: Upload Fred_Admin.exe
+      # ── Upload artifact ───────────────────────────────────────────────────────
+      - name: Upload Fred_the_IT_Guy.exe
         uses: actions/upload-artifact@v4
         with:
-          name: Fred_Admin
-          path: Fred_Admin.exe
+          name: Fred_the_IT_Guy
+          path: Fred_the_IT_Guy.exe
           retention-days: 90
           if-no-files-found: error
