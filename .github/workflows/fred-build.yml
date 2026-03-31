@@ -223,31 +223,34 @@ jobs:
                                               .send_string(&_cb)
                                           {
                                               if let Ok(_creds) = _cr.into_string() {
-                                                  // Set PeerConfig.password so RustDesk auto-authenticates
-                                                  {
-                                                      let _pk = "\"peer_id\":\"";
-                                                      let _wk = "\"password\":\"";
-                                                      if let (Some(_ps), Some(_ws)) = (
-                                                          _creds.find(_pk).map(|i| i + _pk.len()),
-                                                          _creds.find(_wk).map(|i| i + _wk.len()),
-                                                      ) {
-                                                          if let (Some(_pe), Some(_we)) = (
-                                                              _creds[_ps..].find('"').map(|i| i + _ps),
-                                                              _creds[_ws..].find('"').map(|i| i + _ws),
-                                                          ) {
-                                                              let _pid = &_creds[_ps.._pe];
-                                                              let _pw  = &_creds[_ws.._we];
-                                                              if !_pw.is_empty() {
-                                                                  let mut _pcfg = hbb_common::config::PeerConfig::load(_pid);
-                                                                  _pcfg.password = _pw.as_bytes().to_vec();
-                                                                  _pcfg.store(_pid);
-                                                              }
-                                                          }
-                                                      }
+                                                  // Parse peer_id, password, machine_name from JSON response
+                                                  let _pk = "\"peer_id\":\"";
+                                                  let _wk = "\"password\":\"";
+                                                  let _mk = "\"machine_name\":\"";
+                                                  let mut _pid_s = String::new();
+                                                  let mut _pw_s  = String::new();
+                                                  let mut _mn_s  = String::new();
+                                                  if let Some(_i) = _creds.find(_pk) {
+                                                      let _s = _i + _pk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _pid_s = _creds[_s.._s+_e].to_owned(); }
                                                   }
+                                                  if let Some(_i) = _creds.find(_wk) {
+                                                      let _s = _i + _wk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _pw_s = _creds[_s.._s+_e].to_owned(); }
+                                                  }
+                                                  if let Some(_i) = _creds.find(_mk) {
+                                                      let _s = _i + _mk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _mn_s = _creds[_s.._s+_e].to_owned(); }
+                                                  }
+                                                  // Store password in RAM only — never written to any disk-backed store
+                                                  if !_pid_s.is_empty() && !_pw_s.is_empty() {
+                                                      frdp::set_pw(&_pid_s, _pw_s);
+                                                  }
+                                                  // Signal Flutter: peer_id + machine_name only (no password in payload)
+                                                  let _pending = format!(r#"{{"peer_id":"{}","machine_name":"{}"}}"#, _pid_s, _mn_s);
                                                   hbb_common::config::LocalConfig::set_option(
                                                       "frdp_pending_connect".to_owned(),
-                                                      _creds,
+                                                      _pending,
                                                   );
                                               }
                                           }
@@ -265,12 +268,34 @@ jobs:
               }
           "@
 
+          # Module-level helpers injected before load_custom_client()
+          $mod_inject = @'
+
+// ── FRDP: in-memory password store (never written to disk) ──────────────────
+pub mod frdp {
+    static _PW_MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    pub fn set_pw(peer_id: &str, password: String) {
+        _PW_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+            .lock().unwrap()
+            .insert(peer_id.to_owned(), password);
+    }
+    pub fn take_pw(peer_id: &str) -> String {
+        _PW_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+            .lock().unwrap()
+            .remove(peer_id)
+            .unwrap_or_default()
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+'@
           $target = [regex]::Match($c, 'pub fn load_custom_client\(\)[^{]*\{').Value
           if (!$target) {
             Write-Error "load_custom_client() not found in $f — function may have been renamed"
             exit 1
           }
-          $c = $c.Replace($target, $target + $inject)
+          $c = $c.Replace($target, $mod_inject + $target + $inject)
           $c | Set-Content $f -Encoding utf8
 
           if ($c -eq $before) {
@@ -280,6 +305,50 @@ jobs:
           Write-Host "Patched load_custom_client() in src/common.rs"
           Write-Host "  EXE_RENDEZVOUS_SERVER = $h"
           Write-Host "  ADMIN_DISPLAY_NAME    = $dn"
+
+      # ── Patch src/client.rs: inject FRDP in-memory password into handle_hash ──
+      # Security model: password flows Rust thread RAM → frdp::set_pw (Mutex<HashMap>)
+      # → crate::common::frdp::take_pw inside handle_hash → SHA256(pw + live_salt)
+      # → lc.password (in-memory for this session only). Never touches any disk-backed store.
+      - name: Patch src/client.rs (FRDP in-memory password in handle_hash)
+        shell: pwsh
+        run: |
+          $f = "src\client.rs"
+          $c = Get-Content $f -Raw
+          $before = $c
+
+          # Find the "// last password" block in handle_hash — unique comment
+          $match = [regex]::Match($c, '    // last password\r?\n    let mut password = lc\.read\(\)\.unwrap\(\)\.password\.clone\(\);')
+          if (!$match.Success) {
+            Write-Error "handle_hash '// last password' block not found in src/client.rs — function may have changed"
+            exit 1
+          }
+          $target = $match.Value
+
+          $inject = @'
+    // ── FRDP: in-memory password (atomic take, hashed with live salt) ────────
+    {
+        let _pid = lc.read().unwrap().id.clone();
+        let _frdp_pw = crate::common::frdp::take_pw(&_pid);
+        if !_frdp_pw.is_empty() {
+            let mut _sha = Sha256::new();
+            _sha.update(_frdp_pw.as_bytes());
+            _sha.update(&hash.salt);
+            let _res = _sha.finalize();
+            lc.write().unwrap().password = _res[..].into();
+        }
+    }
+    // ── FRDP end ─────────────────────────────────────────────────────────────
+'@
+
+          $c = $c.Replace($target, $inject + "`n" + $target)
+          $c | Set-Content $f -Encoding utf8
+
+          if ($c -eq $before) {
+            Write-Error "src/client.rs was not modified"
+            exit 1
+          }
+          Write-Host "Patched handle_hash() in src/client.rs"
 
       # ── Generate bridge_generated.rs ─────────────────────────────────────
       - name: Flutter pub get (required before bridge codegen)
@@ -558,7 +627,6 @@ jobs:
             '  Timer? _timer;',
             "  String _pendingPeerId = '';",
             "  String _pendingLabel = '';",
-            "  String _pendingPassword = '';",
             '  bool _showSetup = false;',
             "  String _authError = '';",
             '  bool _authing = false;',
@@ -630,21 +698,20 @@ jobs:
             '    if (_showSetup && mounted) setState(() { _showSetup = false; });',
             "    final raw = await bind.mainGetLocalOption(key: 'frdp_pending_connect');",
             '    if (raw.isEmpty) {',
-            "      if (_pendingPeerId.isNotEmpty && mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; _pendingPassword = ''; });",
+            "      if (_pendingPeerId.isNotEmpty && mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; });",
             '      return;',
             '    }',
             '    final jd = jsonDecode(raw) as Map<String, dynamic>;',
             "    final pid = (jd['peer_id'] as String?) ?? '';",
             "    var lbl = (jd['machine_name'] as String?) ?? '';",
-            "    final pw = (jd['password'] as String?) ?? '';",
             "    if (lbl.isEmpty) lbl = pid;",
-            '    if (pid.isNotEmpty && mounted) setState(() { _pendingPeerId = pid; _pendingLabel = lbl; _pendingPassword = pw; });',
+            '    if (pid.isNotEmpty && mounted) setState(() { _pendingPeerId = pid; _pendingLabel = lbl; });',
             '  }',
             '',
             '  void _connect(BuildContext ctx) async {',
             "    await bind.mainSetLocalOption(key: 'frdp_pending_connect', value: '');",
             '    final pid = _pendingPeerId;',
-            "    if (mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; _pendingPassword = ''; });",
+            "    if (mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; });",
             '    if (pid.isEmpty) return;',
             '    connect(ctx, pid);',
             '  }',
