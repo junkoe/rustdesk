@@ -237,15 +237,23 @@ jobs:
                           .timeout(std::time::Duration::from_secs(10))
                           .send_string(&hb_body)
                       {
-                          if let Ok(body) = resp.into_string() {
-                              if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                                  if let Some(pw) = json.get("new_password").and_then(|v| v.as_str()) {
-                                      hbb_common::config::Config::set_permanent_password(pw);
-                                      let confirm = format!(r#"{{"client_id":"{}"}}"#, id_c);
-                                      let _ = ureq::post(&format!("{}/api/device/password-applied", "$portal"))
-                                          .set("Content-Type", "application/json")
-                                          .timeout(std::time::Duration::from_secs(10))
-                                          .send_string(&confirm);
+                          if let Ok(hb_resp) = resp.into_string() {
+                              // Extract new_password field without serde_json dependency.
+                              // Format is always: {"success":true,"message":"OK","new_password":"..."}
+                              // Password charset never contains '"' or '\' so simple find is safe.
+                              let needle = "\"new_password\":\"";
+                              if let Some(start) = hb_resp.find(needle) {
+                                  let after = &hb_resp[start + needle.len()..];
+                                  if let Some(end) = after.find('"') {
+                                      let pw = &after[..end];
+                                      if !pw.is_empty() {
+                                          hbb_common::config::Config::set_permanent_password(pw);
+                                          let confirm = format!(r#"{{"client_id":"{}"}}"#, id_c);
+                                          let _ = ureq::post(&format!("{}/api/device/password-applied", "$portal"))
+                                              .set("Content-Type", "application/json")
+                                              .timeout(std::time::Duration::from_secs(10))
+                                              .send_string(&confirm);
+                                      }
                                   }
                               }
                           }
