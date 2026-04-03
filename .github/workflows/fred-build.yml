@@ -1,14 +1,19 @@
-# fred-build.yml
-# Place this file in your RustDesk fork at: .github/workflows/fred-build.yml
+# fred-portal-build.yml
+# Place this file in your RustDesk fork at: .github/workflows/fred-portal-build.yml
 #
-# Builds "Fred the IT Guy" — a custom RustDesk client that phones home with
-# its peer ID on first launch.
+# Builds "Fred Portal" — the bidirectional portal client for MSP end-users.
+# Key differences from fred-admin-build.yml:
+#   - Phones home (register + heartbeat) with client_type:"portal" — no baked-in password
+#   - Polling thread uses /api/portal/auth + portal_client_token (not /api/auth + portal_token)
+#   - Simpler right panel: title + _FsPortalWidget only (no alias, quick-connect, scratch pad)
+#   - Settings: General + About only
+#   - No remote_page.dart patch (no session tracking)
 #
-# Trigger: push to master, or manually via Actions → "Run workflow"
+# Trigger: manually via Actions → "Run workflow" only (portal client is distributed manually)
 # Runner:  windows-2022 (free for public repos)
-# Output:  Fred_the_IT_Guy.exe  (GitHub Actions artifact, 90-day retention)
+# Output:  Fred_Portal.exe  (GitHub Actions artifact, 90-day retention)
 
-name: Build Fred the IT Guy
+name: Build Fred Portal
 
 on:
   push:
@@ -21,15 +26,8 @@ env:
   LLVM_VERSION:    "15.0.6"
   VCPKG_COMMIT:    "120deac3062162151622ca4860575a33844ba10b"
   PORTAL_URL:      "https://help.fredtheitguy.com"
-  # ── Branding (change these to rebrand for another deployment) ──────────────
-  APP_NAME:        "Fred the IT Guy"   # exe metadata / about screen
-  APP_TITLE:       "Fred IT Support"   # window title bar
-  SUPPORT_PHONE:   "(602) 695-9825"              # shown in the info panel
-  WEBSITE_URL:     "https://help.fredtheitguy.com" # banner click destination
-  BANNER_LABEL:    "Support Site"                   # banner main text
-  BANNER_URL_TEXT: "help.fredtheitguy.com"          # banner displayed URL
-  # Optional icon: commit a file to clients/rustdesk-build/app_icon.ico and it
-  # will automatically replace the default RustDesk icon in the build.
+  APP_NAME:        "FRDP Portal"
+  APP_TITLE:       "FRDP Portal"
 
 jobs:
   build:
@@ -37,14 +35,14 @@ jobs:
     timeout-minutes: 150
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────────
+      # ── Checkout ────────────────────────────────────────────────────────────
       - name: Checkout fork with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 1
 
-      # ── Cache: vcpkg binary cache ──────────────────────────────────────────────
+      # ── Cache: vcpkg binary cache ──────────────────────────────────────────
       - name: Cache vcpkg binary cache
         uses: actions/cache@v4
         with:
@@ -52,7 +50,7 @@ jobs:
           key: vcpkg-${{ env.VCPKG_COMMIT }}-x64-windows-static
           restore-keys: vcpkg-${{ env.VCPKG_COMMIT }}-
 
-      # ── Cache: Rust registry + build cache ────────────────────────────────────
+      # ── Cache: Rust registry + build cache ────────────────────────────────
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -63,7 +61,7 @@ jobs:
           key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ env.RUST_VERSION }}-
 
-      # ── Rust ──────────────────────────────────────────────────────────────────
+      # ── Rust ────────────────────────────────────────────────────────────────
       - name: Install Rust ${{ env.RUST_VERSION }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -71,7 +69,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
-      # ── LLVM ──────────────────────────────────────────────────────────────────
+      # ── LLVM ────────────────────────────────────────────────────────────────
       - name: Install LLVM ${{ env.LLVM_VERSION }}
         uses: KyleMayes/install-llvm-action@v1
         with:
@@ -81,7 +79,7 @@ jobs:
       - name: Set LIBCLANG_PATH
         run: echo "LIBCLANG_PATH=C:\llvm\bin" >> $env:GITHUB_ENV
 
-      # ── Flutter ───────────────────────────────────────────────────────────────
+      # ── Flutter ─────────────────────────────────────────────────────────────
       - name: Install Flutter ${{ env.FLUTTER_VERSION }}
         uses: subosito/flutter-action@v2
         with:
@@ -95,7 +93,7 @@ jobs:
       - name: Flutter precache (Windows)
         run: flutter precache --windows
 
-      # ── Custom Flutter engine (required for RustDesk) ─────────────────────────
+      # ── Custom Flutter engine (required for RustDesk) ─────────────────────
       - name: Download RustDesk custom Flutter engine
         run: |
           Invoke-WebRequest `
@@ -112,7 +110,7 @@ jobs:
           Copy-Item -Path "$env:TEMP\rd-engine\*" -Destination $engineDest -Force
           Write-Host "Custom engine installed to $engineDest"
 
-      # ── Flutter dropdown-menu patch (3.24.4/3.24.5) ───────────────────────────
+      # ── Flutter dropdown-menu patch (3.24.4/3.24.5) ───────────────────────
       - name: Apply Flutter dropdown patch
         run: |
           $patch = ".github\patches\flutter_3.24.4_dropdown_menu_enableFilter.diff"
@@ -127,7 +125,7 @@ jobs:
             Write-Host "Patch file not found — skipping"
           }
 
-      # ── vcpkg ─────────────────────────────────────────────────────────────────
+      # ── vcpkg ───────────────────────────────────────────────────────────────
       - name: Setup vcpkg at pinned commit
         uses: lukka/run-vcpkg@v11
         with:
@@ -143,7 +141,7 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
 
-      # ── Add ureq HTTP client (used for phone-home registration) ─────────────────
+      # ── Add ureq HTTP client ─────────────────────────────────────────────
       - name: Add ureq to Cargo.toml
         shell: pwsh
         run: |
@@ -156,56 +154,44 @@ jobs:
             Write-Host "ureq already present"
           }
 
-      # ── Patch src/common.rs: relay server + phone-home ────────────────────────
-      # WHY common.rs and not main.rs:
-      #   Flutter builds compile src/ into librustdesk.dll (library crate).
-      #   src/main.rs is a dead binary stub — fn main() never runs in a Flutter build.
-      #   The real Flutter startup path is: C++ WinMain → Dart → initialize() in
-      #   flutter_ffi.rs → load_custom_client() in common.rs.  Injecting here is the
-      #   only place that is guaranteed to execute.
-      - name: Patch src/common.rs (relay server + phone-home registration)
+      # ── Patch src/common.rs ──────────────────────────────────────────────────
+      # Combines admin client (relay + frdp module + polling thread) with
+      # customer client (phone-home register + heartbeat), adapted for portal:
+      #   - client_type:"portal" in registration body
+      #   - No baked-in password — server delivers via heartbeat as with support clients
+      #   - Polling thread uses portal_client_token + /api/portal/auth
+      - name: Patch src/common.rs (relay + phone-home + portal polling)
         shell: pwsh
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY:  ${{ secrets.RUSTDESK_KEY }}
-          RDP_PASSWORD:  ${{ secrets.RDP_PASSWORD }}
         run: |
-          $h      = $env:RUSTDESK_HOST
-          $k      = $env:RUSTDESK_KEY
-          $p      = $env:RDP_PASSWORD
-          $portal = "${{ env.PORTAL_URL }}"
-          $f      = "src\common.rs"
-          $c      = Get-Content $f -Raw
+          $h = $env:RUSTDESK_HOST
+          $k = $env:RUSTDESK_KEY
+          $p = $env:PORTAL_URL
+          $f = "src\common.rs"
+          $c = Get-Content $f -Raw
           $before = $c
 
-          # Rust block injected as the first lines of load_custom_client().
-          # PowerShell expands $h, $k, $portal at workflow runtime; everything
-          # else is literal Rust source.
           $inject = @"
 
-              // ── Fred IT Guy: compiled-in relay server ────────────────────────────
-              // EXE_RENDEZVOUS_SERVER is priority #1 in get_rendezvous_servers() —
-              // it overrides custom-rendezvous-server, cloud push, and all fallbacks.
+              // ── FRDP Portal: compiled-in relay server ────────────────────────────
               *hbb_common::config::EXE_RENDEZVOUS_SERVER.write().unwrap() = "$h".to_owned();
               if !"$k".is_empty() {
                   hbb_common::config::Config::set_option("key".to_owned(), "$k".to_owned());
               }
-              // ── Fred IT Guy: remote admin can push config changes when connected ──
+              // ── FRDP Portal: allow remote config modification (admin support) ────
               hbb_common::config::Config::set_option("allow-remote-config-modification".to_owned(), "Y".to_owned());
-              // ── Fred IT Guy: disable update check notifications ───────────────
+              // ── FRDP Portal: disable update check notifications ──────────────────
               hbb_common::config::Config::set_option("enable-check-update".to_owned(), "N".to_owned());
-              // ── Fred IT Guy: force dark theme ─────────────────────────────────
+              // ── FRDP Portal: force dark theme ────────────────────────────────────
               hbb_common::config::LocalConfig::set_option("theme".to_owned(), "dark".to_owned());
-              // ── Fred IT Guy: permanent password + both-mode verification ──────────
-              // Allows admin to connect with RDP_PASSWORD without end-user clicking Accept.
-              // End user can still accept one-time sessions via the prompt.
-              if !"$p".is_empty() {
-                  hbb_common::config::Config::set_permanent_password("$p");
-                  hbb_common::config::Config::set_option("verification-method".to_owned(), "use-both-passwords".to_owned());
-              }
-              // ── Fred IT Guy: phone-home registration ─────────────────────────────
-              // Spawns a background thread; waits 10 s for the peer ID to appear
-              // (requires hbbs to be reachable), then POSTs to the portal once.
+              // ── FRDP Portal: permanent password + both-mode verification ──────────
+              // Allows admin to connect with the server-managed password without
+              // end-user clicking Accept. End user can still accept one-time sessions.
+              hbb_common::config::Config::set_option("verification-method".to_owned(), "use-both-passwords".to_owned());
+              // ── FRDP Portal: phone-home registration (client_type = portal) ──────
+              // No baked-in password — server assigns via heartbeat response.
               std::thread::spawn(|| {
                   std::thread::sleep(std::time::Duration::from_secs(10));
                   let id = hbb_common::config::Config::get_id();
@@ -214,49 +200,42 @@ jobs:
                   let id_c   = id.replace('"', "");
                   let name_c = machine.replace('"', "").replace('\\', "");
                   let body   = format!(
-                      r#"{{"client_id":"{}","machine_name":"{}","code":""}}"#,
+                      r#"{{"client_id":"{}","machine_name":"{}","code":"","client_type":"portal"}}"#,
                       id_c, name_c
                   );
-                  // Initial registration (retry up to 3 times)
-                  for attempt in 0..3u8 {
-                      if let Ok(resp) = ureq::post(&format!("{}/api/register", "$portal"))
+                  for _ in 0..3u8 {
+                      if let Ok(resp) = ureq::post(&format!("{}/api/register", "$p"))
                           .set("Content-Type", "application/json")
                           .timeout(std::time::Duration::from_secs(10))
                           .send_string(&body) {
                           if resp.status() < 400 { break; }
                       }
-                      if attempt < 2 { std::thread::sleep(std::time::Duration::from_secs(60)); }
+                      std::thread::sleep(std::time::Duration::from_secs(5));
                   }
-                  // Heartbeat loop — keeps client status 'online' in the portal
-                  // and handles server-pushed password rotations.
+                  // Heartbeat loop — keeps status online, receives server-pushed passwords
                   let hb_body = format!(r#"{{"client_id":"{}"}}"#, id_c);
                   loop {
                       std::thread::sleep(std::time::Duration::from_secs(60));
-                      if let Ok(resp) = ureq::post(&format!("{}/api/heartbeat", "$portal"))
+                      if let Ok(resp) = ureq::post(&format!("{}/api/heartbeat", "$p"))
                           .set("Content-Type", "application/json")
                           .timeout(std::time::Duration::from_secs(10))
                           .send_string(&hb_body)
                       {
                           if let Ok(hb_resp) = resp.into_string() {
-                              // Extract new_password field without serde_json dependency.
-                              // Format is always: {"success":true,"message":"OK","new_password":"..."}
-                              // Password charset never contains '"' or '\' so simple find is safe.
                               let needle = "\"new_password\":\"";
                               if let Some(start) = hb_resp.find(needle) {
                                   let after = &hb_resp[start + needle.len()..];
                                   if let Some(end) = after.find('"') {
                                       let pw = &after[..end];
                                       if !pw.is_empty() {
-                                          // Try IPC path first — required when installed as a Windows
-                                          // service (service process owns the in-memory password; writing
-                                          // config directly only updates disk and the service never reloads).
-                                          // Falls back to direct write in portable mode where no service
-                                          // socket exists.
+                                          // Try IPC first — required when installed as a Windows
+                                          // service (service process owns the in-memory password).
+                                          // Falls back to direct write in portable mode.
                                           if crate::ipc::set_permanent_password(pw.to_owned()).is_err() {
                                               hbb_common::config::Config::set_permanent_password(pw);
                                           }
                                           let confirm = format!(r#"{{"client_id":"{}"}}"#, id_c);
-                                          let _ = ureq::post(&format!("{}/api/device/password-applied", "$portal"))
+                                          let _ = ureq::post(&format!("{}/api/device/password-applied", "$p"))
                                               .set("Content-Type", "application/json")
                                               .timeout(std::time::Duration::from_secs(10))
                                               .send_string(&confirm);
@@ -267,28 +246,161 @@ jobs:
                       }
                   }
               });
+              // ── FRDP Portal: connect request polling (portal_client_token) ───────
+              {
+                  let _pu = "$p".to_owned();
+                  std::thread::spawn(move || {
+                      let _tk = "portal_client_token";
+                      loop {
+                          std::thread::sleep(std::time::Duration::from_secs(10));
+                          let _tok = hbb_common::config::LocalConfig::get_option(_tk);
+                          if _tok.is_empty() { continue; }
+                          let _body = format!(r#"{{"token":"{}"}}"#, _tok);
+                          match ureq::post(&format!("{}/api/poll", _pu))
+                              .set("Content-Type", "application/json")
+                              .timeout(std::time::Duration::from_secs(8))
+                              .send_string(&_body)
+                          {
+                              Ok(_resp) => {
+                                  if let Ok(_text) = _resp.into_string() {
+                                      let _req_id: Option<u64> = (|| {
+                                          let _pos = _text.find("\"id\":")?;
+                                          let _rest = _text[_pos + 5..].trim_start();
+                                          let _end = _rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(_rest.len());
+                                          if _end == 0 { return None; }
+                                          _rest[.._end].parse().ok()
+                                      })();
+                                      if let Some(_rid) = _req_id {
+                                          let _cb = format!(r#"{{"token":"{}"}}"#, _tok);
+                                          if let Ok(_cr) = ureq::post(&format!("{}/api/connect/{}/credentials", _pu, _rid))
+                                              .set("Content-Type", "application/json")
+                                              .timeout(std::time::Duration::from_secs(8))
+                                              .send_string(&_cb)
+                                          {
+                                              if let Ok(_creds) = _cr.into_string() {
+                                                  let _pk = "\"peer_id\":\"";
+                                                  let _wk = "\"password\":\"";
+                                                  let _mk = "\"machine_name\":\"";
+                                                  let mut _pid_s = String::new();
+                                                  let mut _pw_s  = String::new();
+                                                  let mut _mn_s  = String::new();
+                                                  if let Some(_i) = _creds.find(_pk) {
+                                                      let _s = _i + _pk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _pid_s = _creds[_s.._s+_e].to_owned(); }
+                                                  }
+                                                  if let Some(_i) = _creds.find(_wk) {
+                                                      let _s = _i + _wk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _pw_s = _creds[_s.._s+_e].to_owned(); }
+                                                  }
+                                                  if let Some(_i) = _creds.find(_mk) {
+                                                      let _s = _i + _mk.len();
+                                                      if let Some(_e) = _creds[_s..].find('"') { _mn_s = _creds[_s.._s+_e].to_owned(); }
+                                                  }
+                                                  if !_pid_s.is_empty() && !_pw_s.is_empty() {
+                                                      frdp::set_pw(&_pid_s, _pw_s);
+                                                  }
+                                                  let _pending = format!(r#"{{"peer_id":"{}","machine_name":"{}"}}"#, _pid_s, _mn_s);
+                                                  hbb_common::config::LocalConfig::set_option(
+                                                      "frdp_pending_connect".to_owned(),
+                                                      _pending,
+                                                  );
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+                              Err(ureq::Error::Status(401, _)) => {
+                                  // Token expired — clear so Flutter shows re-auth form
+                                  hbb_common::config::LocalConfig::set_option(_tk.to_owned(), String::new());
+                              }
+                              Err(_) => {}
+                          }
+                      }
+                  });
+              }
           "@
 
-          # Use String.Replace() rather than -replace regex to avoid
-          # backreference escaping issues with the multi-line $inject.
+          # Module-level frdp helper injected before load_custom_client()
+          $mod_inject = @"
+
+              // -- FRDP: in-memory password store (never written to disk) ----------
+              pub mod frdp {
+                  static _PW_MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+                      std::sync::OnceLock::new();
+                  pub fn set_pw(peer_id: &str, password: String) {
+                      _PW_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+                          .lock().unwrap()
+                          .insert(peer_id.to_owned(), password);
+                  }
+                  pub fn take_pw(peer_id: &str) -> String {
+                      _PW_MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+                          .lock().unwrap()
+                          .remove(peer_id)
+                          .unwrap_or_default()
+                  }
+              }
+              // ------------------------------------------------------------------
+
+          "@
           $target = [regex]::Match($c, 'pub fn load_custom_client\(\)[^{]*\{').Value
           if (!$target) {
             Write-Error "load_custom_client() not found in $f — function may have been renamed"
-            Select-String -Path $f -Pattern "load_custom_client" | Select-Object -First 5 | % { Write-Host $_.Line }
             exit 1
           }
-          $c = $c.Replace($target, $target + $inject)
+          $c = $c.Replace($target, $mod_inject + $target + $inject)
           $c | Set-Content $f -Encoding utf8
 
           if ($c -eq $before) {
-            Write-Error "src/common.rs was not modified — String.Replace() found no match"
+            Write-Error "src/common.rs was not modified"
             exit 1
           }
           Write-Host "Patched load_custom_client() in src/common.rs"
           Write-Host "  EXE_RENDEZVOUS_SERVER = $h"
-          Write-Host "  Portal = $portal"
+          Write-Host "  PORTAL_URL            = $p"
 
-      # ── Generate bridge_generated.rs (required, missing from fork) ────────────
+      # ── Patch src/client.rs: inject FRDP in-memory password into handle_hash ──
+      # Identical to admin client — needed so admin-initiated connections to this
+      # portal device auto-fill the server-managed password without writing to disk.
+      - name: Patch src/client.rs (FRDP in-memory password in handle_hash)
+        shell: pwsh
+        run: |
+          $f = "src\client.rs"
+          $c = Get-Content $f -Raw
+          $before = $c
+
+          $match = [regex]::Match($c, '    // last password\r?\n    let mut password = lc\.read\(\)\.unwrap\(\)\.password\.clone\(\);')
+          if (!$match.Success) {
+            Write-Error "handle_hash '// last password' block not found in src/client.rs — function may have changed"
+            exit 1
+          }
+          $target = $match.Value
+
+          $inject = @"
+              // -- FRDP: in-memory password (atomic take, hashed with live salt) --
+              {
+                  let _pid = lc.read().unwrap().id.clone();
+                  let _frdp_pw = crate::common::frdp::take_pw(&_pid);
+                  if !_frdp_pw.is_empty() {
+                      let mut _sha = Sha256::new();
+                      _sha.update(_frdp_pw.as_bytes());
+                      _sha.update(&hash.salt);
+                      let _res = _sha.finalize();
+                      lc.write().unwrap().password = _res[..].into();
+                  }
+              }
+              // -- FRDP end -------------------------------------------------------
+          "@
+
+          $c = $c.Replace($target, $inject + "`n" + $target)
+          $c | Set-Content $f -Encoding utf8
+
+          if ($c -eq $before) {
+            Write-Error "src/client.rs was not modified"
+            exit 1
+          }
+          Write-Host "Patched handle_hash() in src/client.rs"
+
+      # ── Generate bridge_generated.rs ─────────────────────────────────────
       - name: Flutter pub get (required before bridge codegen)
         run: flutter pub get
         working-directory: flutter
@@ -304,26 +416,24 @@ jobs:
             --dart-output flutter/lib/generated_bridge.dart
           Write-Host "bridge_generated.rs created"
 
-      # ── Python build deps ─────────────────────────────────────────────────────
+      # ── Python build deps ─────────────────────────────────────────────────
       - name: Install Python build dependencies
         run: python -m pip install --quiet requests argparse
 
-      # ── Branding ──────────────────────────────────────────────────────────────
-      # All values driven from env: block at the top — change those to rebrand.
-      - name: Apply branding
+      # ── Branding + right panel ────────────────────────────────────────────
+      - name: Apply branding and portal right panel
         shell: pwsh
         run: |
-          $name   = "${{ env.APP_NAME }}"
-          $title  = "${{ env.APP_TITLE }}"
-          $portal = "${{ env.PORTAL_URL }}"
+          $name  = "${{ env.APP_NAME }}"
+          $title = "${{ env.APP_TITLE }}"
 
-          # 1. Window title (C++ runner)
+          # 1. Window title
           $f = "flutter\windows\runner\main.cpp"
           (Get-Content $f -Raw) -replace 'std::wstring app_name = L"RustDesk"', "std::wstring app_name = L`"$title`"" |
             Set-Content $f -Encoding utf8
           Write-Host "main.cpp: window title → $title"
 
-          # 2. Exe metadata (right-click → Properties)
+          # 2. Exe metadata
           $f = "flutter\windows\runner\Runner.rc"
           $bytes = [System.IO.File]::ReadAllBytes($f)
           $enc = if ($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { [System.Text.Encoding]::Unicode } else { [System.Text.Encoding]::UTF8 }
@@ -331,68 +441,13 @@ jobs:
           $c = $c -replace 'VALUE "FileDescription", "RustDesk[^"]*"', "VALUE `"FileDescription`", `"$name`""
           $c = $c -replace 'VALUE "ProductName", "RustDesk[^"]*"',     "VALUE `"ProductName`", `"$name`""
           [System.IO.File]::WriteAllText($f, $c, $enc)
-          Write-Host "Runner.rc: product name → $name (encoding: $($enc.EncodingName))"
+          Write-Host "Runner.rc: product name → $name"
 
-          # 3. Clear the promo tip text (widget becomes invisible)
-          $f = "src\lang\en.rs"
-          (Get-Content $f -Raw) -replace '("setup_server_tip",\s*)"[^"]*"', '${1}"Help Desk"' |
-            Set-Content $f -Encoding utf8
-          Write-Host "en.rs: setup_server_tip → Help Desk"
-
-          # 4. Icon — place app_icon.ico at assets/app_icon.ico in the fork root
-          if (Test-Path "assets\app_icon.ico") {
-            # Flutter app icon (taskbar, inner exe)
-            Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
-            # Portable launcher icon (exe file icon in Explorer)
-            Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
-            # Flutter asset — ends up at data\flutter_assets\assets\icon.ico inside the
-            # portable bundle. When the user clicks Install, RustDesk's install flow XCOPYs
-            # the whole data\ folder and get_custom_icon() in src/platform/windows.rs looks
-            # for exactly this path to set the shortcut / registry DisplayIcon.
-            New-Item -ItemType Directory -Force -Path "flutter\assets" | Out-Null
-            Copy-Item "assets\app_icon.ico" "flutter\assets\icon.ico" -Force
-            # System tray icon — RustDesk trayManager.setIcon() uses assets/logo.ico
-            Copy-Item "assets\app_icon.ico" "flutter\assets\logo.ico" -Force
-            $lines = Get-Content "flutter\pubspec.yaml"
-            if (($lines | Select-String 'assets/icon\.ico').Count -eq 0) {
-              $out = [System.Collections.Generic.List[string]]::new()
-              $inFlutter = $false; $added = $false
-              foreach ($ln in $lines) {
-                if ($ln -match '^flutter:') { $inFlutter = $true }
-                elseif ($ln -match '^\S') { $inFlutter = $false }
-                if ($inFlutter -and !$added -and $ln -match '^\s+assets:\s*$') {
-                  $out.Add($ln); $out.Add("    - assets/icon.ico"); $added = $true; continue
-                }
-                $out.Add($ln)
-              }
-              Set-Content "flutter\pubspec.yaml" -Value $out -Encoding utf8
-              if ($added) { Write-Host "Icon: added assets/icon.ico entry to pubspec.yaml" }
-              else { Write-Host "Warning: flutter.assets section not found — pubspec.yaml unchanged" }
-            }
-            Write-Host "Icon: replaced (Flutter + portable launcher + Flutter asset for Install)"
-          } else {
-            Write-Host "No icon found at assets/app_icon.ico — using default"
-          }
-
-          # 5. In-app title bar SVG icon
-          if (Test-Path "assets\polished_logo.svg") {
-            Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
-            Write-Host "SVG icon: replaced"
-          } else {
-            Write-Host "No SVG found at assets/polished_logo.svg — using default"
-          }
-
-      # ── Restrictions: incoming-only + lock local settings ────────────────────
-      - name: Apply restrictions (incoming-only, lock settings)
-        shell: pwsh
-        run: |
-          # 1. Replace right panel with branded info panel
+          # 3. Hide update card + inject portal right panel (simpler than admin — no alias/scratchpad)
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
           $c = Get-Content $f -Raw
-          $phone          = "${{ env.SUPPORT_PHONE }}"
-          $websiteUrl     = "${{ env.WEBSITE_URL }}"
-          $bannerLabel    = "${{ env.BANNER_LABEL }}"
-          $bannerUrlText  = "${{ env.BANNER_URL_TEXT }}"
+          $c = $c -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false'
+
           $panel = @(
             'Expanded(',
             '              child: Container(',
@@ -400,124 +455,282 @@ jobs:
             '                  color: Color(0xFF242424),',
             '                  border: Border(left: BorderSide(color: Color(0xFF2D2D2D))),',
             '                ),',
-            '                padding: EdgeInsets.all(24),',
+            '                padding: EdgeInsets.all(20),',
             '                child: Column(',
-            '                  mainAxisAlignment: MainAxisAlignment.start,',
             '                  crossAxisAlignment: CrossAxisAlignment.start,',
             '                  children: [',
             '                    Row(children: [',
-            '                      Icon(Icons.headset_mic_outlined, color: Color(0xFF6366F1), size: 20),',
+            '                      Icon(Icons.shield_outlined, color: Color(0xFF6366F1), size: 18),',
             '                      SizedBox(width: 8),',
-            "                      Text('Fred the IT Guy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFFF1F5F9))),",
-            '                    ]),',
-            '                    SizedBox(height: 20),',
-            "                    Text('While you wait...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFFCBD5E1))),",
-            '                    SizedBox(height: 12),',
-            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
-            '                      SizedBox(width: 8),',
-            "                      Expanded(child: Text('Your technician will connect shortly.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
-            '                    ]),',
-            '                    SizedBox(height: 6),',
-            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
-            '                      SizedBox(width: 8),',
-            "                      Expanded(child: Text('Keep this window open.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
-            '                    ]),',
-            '                    SizedBox(height: 6),',
-            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
-            '                      SizedBox(width: 8),',
-            "                      Expanded(child: Text('You may see your screen being controlled - this is normal.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
-            '                    ]),',
-            '                    SizedBox(height: 6),',
-            '                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [',
-            '                      Icon(Icons.fiber_manual_record, color: Color(0xFF6366F1), size: 8),',
-            '                      SizedBox(width: 8),',
-            "                      Expanded(child: Text('Never share your ID or one-time password with anyone else.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))),",
-            '                    ]),',
-            '                    SizedBox(height: 20),',
-            '                    Divider(color: Color(0xFF2D2D2D)),',
-            '                    SizedBox(height: 12),',
-            "                    Text('Need help? Contact:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFFCBD5E1))),",
-            '                    SizedBox(height: 8),',
-            '                    Row(children: [',
-            '                      Icon(Icons.phone_outlined, color: Color(0xFF6366F1), size: 16),',
-            '                      SizedBox(width: 8),',
-            "                      Text('$phone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFFF1F5F9))),",
+            "                      Text('Fred IT Portal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFFF1F5F9))),",
             '                    ]),',
             '                    SizedBox(height: 16),',
-            '                    Expanded(',
-            '                      child: MouseRegion(',
-            '                        cursor: SystemMouseCursors.click,',
-            '                        child: GestureDetector(',
-            "                          onTap: () => launchUrl(Uri.parse('$websiteUrl')),",
-            '                          child: Container(',
-            '                            width: double.infinity,',
-            '                            decoration: BoxDecoration(',
-            '                              gradient: LinearGradient(',
-            '                                begin: Alignment.topLeft,',
-            '                                end: Alignment.bottomRight,',
-            '                                colors: [Color(0xFF4338CA), Color(0xFF312E81)],',
-            '                              ),',
-            '                              borderRadius: BorderRadius.circular(8),',
-            '                            ),',
-            '                            child: Column(',
-            '                              mainAxisAlignment: MainAxisAlignment.center,',
-            '                              children: [',
-            '                                Icon(Icons.language_outlined, color: Color(0xFF6366F1), size: 22),',
-            '                                SizedBox(height: 6),',
-            '                                Row(mainAxisSize: MainAxisSize.min, children: [',
-            "                                  Text('$bannerLabel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFFFFFFF))),",
-            '                                  SizedBox(width: 4),',
-            '                                  Icon(Icons.open_in_new, color: Color(0xCCFFFFFF), size: 13),',
-            '                                ]),',
-            '                                SizedBox(height: 4),',
-            "                                Text('$bannerUrlText', style: TextStyle(fontSize: 11, color: Color(0xB3FFFFFF))),",
-            '                              ],',
-            '                            ),',
-            '                          ),',
-            '                        ),',
-            '                      ),',
-            '                    ),',
+            '                    _FsPortalWidget(),',
             '                    SizedBox(height: 12),',
-            '                    Container(',
-            '                      height: 16,',
-            '                      decoration: BoxDecoration(',
-            '                        gradient: LinearGradient(',
-            '                          colors: [Color(0xFF252350), Color(0xFF1A1840)],',
-            '                        ),',
-            '                        borderRadius: BorderRadius.circular(4),',
-            '                      ),',
+            '                    Divider(color: Color(0xFF2D2D2D)),',
+            '                    SizedBox(height: 8),',
+            "                    Text('Visit the portal in your browser to manage devices and tickets.',",
+            "                      style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),",
             '                    ),',
             '                  ],',
             '                ),',
             '              ),',
             '            )'
           ) -join "`n"
+
           $c = $c.Replace('if (!isIncomingOnly) Expanded(child: buildRightPane(context))', $panel)
           $c | Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: right panel replaced with info panel"
+          Write-Host "desktop_home_page.dart: update card hidden + portal panel injected"
 
-          # Ensure url_launcher is imported (needed for banner tap handler)
-          # Check for the specific launchUrl import, not just any url_launcher reference
-          $c = Get-Content $f -Raw
-          if ($c -notmatch "import 'package:url_launcher/url_launcher.dart'") {
-            $c = "import 'package:url_launcher/url_launcher.dart';`n" + $c
-            $c | Set-Content $f -Encoding utf8
-            Write-Host "desktop_home_page.dart: added url_launcher import"
-          } else {
-            Write-Host "desktop_home_page.dart: url_launcher already imported"
+          # 4. Icons
+          if (Test-Path "assets\app_icon.ico") {
+            Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
+            Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
+            # System tray icon — RustDesk trayManager.setIcon() uses assets/logo.ico
+            New-Item -ItemType Directory -Force -Path "flutter\assets" | Out-Null
+            Copy-Item "assets\app_icon.ico" "flutter\assets\logo.ico" -Force
+            Write-Host "Icon: replaced"
+          }
+          if (Test-Path "assets\polished_logo.svg") {
+            Copy-Item "assets\polished_logo.svg" "flutter\assets\icon.svg" -Force
+            Write-Host "SVG icon: replaced"
           }
 
-          # 2. Hide update notification card (belt-and-suspenders alongside Rust config option)
+      # ── Inject _FsPortalWidget (portal auth — /api/portal/auth + portal_client_token) ──
+      # Identical logic to admin _FsPortalWidget but uses portal endpoint and token key.
+      # Security model: same as admin — token-only in LocalConfig, no password stored.
+      - name: Inject _FsPortalWidget
+        shell: pwsh
+        run: |
+          $portal = $env:PORTAL_URL
           $f = "flutter\lib\desktop\pages\desktop_home_page.dart"
-          (Get-Content $f -Raw) -replace 'bind\.mainGetNewVersion\(\)\.isNotEmpty', 'false' |
-            Set-Content $f -Encoding utf8
-          Write-Host "desktop_home_page.dart: update notification card hidden"
+          $c = Get-Content $f -Raw
 
-          # 3. Settings tabs — keep only General and About
-          # Hides Security, Network, Display, Printer so end user can't change permissions or server
+          if ($c -notmatch "import 'dart:async'") {
+            $c = "import 'dart:async';`n" + $c
+          }
+          if ($c -notmatch "import 'dart:convert'") {
+            $c = "import 'dart:convert';`n" + $c
+          }
+          if ($c -notmatch "package:http/http.dart") {
+            $c = "import 'package:http/http.dart' as rdHttp;`n" + $c
+          }
+
+          $cls = @(
+            '',
+            'class _FsPortalWidget extends StatefulWidget {',
+            '  const _FsPortalWidget({Key? key}) : super(key: key);',
+            '  @override',
+            '  State<_FsPortalWidget> createState() => _FsPortalWidgetState();',
+            '}',
+            'class _FsPortalWidgetState extends State<_FsPortalWidget> {',
+            '  Timer? _timer;',
+            "  String _pendingPeerId = '';",
+            "  String _pendingLabel = '';",
+            '  bool _showSetup = false;',
+            "  String _authError = '';",
+            '  bool _authing = false;',
+            '  final _userCtrl = TextEditingController();',
+            '  final _passCtrl = TextEditingController();',
+            '  final _totpCtrl = TextEditingController();',
+            '',
+            '  @override',
+            '  void initState() {',
+            '    super.initState();',
+            '    _checkToken();',
+            '    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());',
+            '  }',
+            '',
+            '  @override',
+            '  void dispose() {',
+            '    _timer?.cancel();',
+            '    _userCtrl.dispose();',
+            '    _passCtrl.dispose();',
+            '    _totpCtrl.dispose();',
+            '    super.dispose();',
+            '  }',
+            '',
+            '  void _checkToken() async {',
+            "    final t = await bind.mainGetLocalOption(key: 'portal_client_token');",
+            '    if (mounted) setState(() { _showSetup = t.isEmpty; });',
+            '  }',
+            '',
+            '  void _auth() async {',
+            '    final u = _userCtrl.text.trim();',
+            '    final p = _passCtrl.text;',
+            '    if (u.isEmpty || p.isEmpty) return;',
+            '    if (mounted) setState(() { _authing = true; _authError = ""; });',
+            '    try {',
+            "      final body = <String, dynamic>{'username': u, 'password': p};",
+            '      final tot = _totpCtrl.text.trim();',
+            "      if (tot.isNotEmpty) body['totp_code'] = tot;",
+            "      final resp = await rdHttp.post(Uri.parse('$portal/api/portal/auth'),",
+            "        headers: {'Content-Type': 'application/json'},",
+            '        body: jsonEncode(body),',
+            '      );',
+            '      if (resp.statusCode == 200) {',
+            '        final decoded = jsonDecode(resp.body) as Map<String, dynamic>;',
+            "        final tok = decoded['token'] as String?;",
+            '        if (tok != null && tok.isNotEmpty) {',
+            "          await bind.mainSetLocalOption(key: 'portal_client_token', value: tok);",
+            '          _userCtrl.clear(); _passCtrl.clear(); _totpCtrl.clear();',
+            '          if (mounted) setState(() { _showSetup = false; _authing = false; });',
+            '          return;',
+            '        }',
+            "        if (mounted) setState(() { _authError = 'Unexpected response.'; _authing = false; });",
+            '      } else if (resp.statusCode == 429) {',
+            "        if (mounted) setState(() { _authError = 'Too many attempts — try again in 15 min.'; _authing = false; });",
+            '      } else {',
+            "        if (mounted) setState(() { _authError = 'Invalid credentials or TOTP code.'; _authing = false; });",
+            '      }',
+            '    } catch (_) {',
+            "      if (mounted) setState(() { _authError = 'Connection failed.'; _authing = false; });",
+            '    }',
+            '  }',
+            '',
+            '  void _poll() async {',
+            "    final tok = await bind.mainGetLocalOption(key: 'portal_client_token');",
+            '    if (tok.isEmpty) {',
+            '      if (!_showSetup && mounted) setState(() { _showSetup = true; });',
+            '      return;',
+            '    }',
+            '    if (_showSetup && mounted) setState(() { _showSetup = false; });',
+            "    final raw = await bind.mainGetLocalOption(key: 'frdp_pending_connect');",
+            '    if (raw.isEmpty) {',
+            "      if (_pendingPeerId.isNotEmpty && mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; });",
+            '      return;',
+            '    }',
+            '    final jd = jsonDecode(raw) as Map<String, dynamic>;',
+            "    final pid = (jd['peer_id'] as String?) ?? '';",
+            "    var lbl = (jd['machine_name'] as String?) ?? '';",
+            "    if (lbl.isEmpty) lbl = pid;",
+            '    if (pid.isNotEmpty && mounted) setState(() { _pendingPeerId = pid; _pendingLabel = lbl; });',
+            '  }',
+            '',
+            '  void _connect(BuildContext ctx) async {',
+            "    await bind.mainSetLocalOption(key: 'frdp_pending_connect', value: '');",
+            '    final pid = _pendingPeerId;',
+            "    if (mounted) setState(() { _pendingPeerId = ''; _pendingLabel = ''; });",
+            '    if (pid.isEmpty) return;',
+            '    connect(ctx, pid);',
+            '  }',
+            '',
+            '  @override',
+            '  Widget build(BuildContext context) {',
+            '    if (_showSetup) return _buildSetup();',
+            '    if (_pendingPeerId.isNotEmpty) return _buildNotification(context);',
+            '    return const SizedBox.shrink();',
+            '  }',
+            '',
+            '  Widget _buildSetup() {',
+            '    return Container(',
+            '      padding: const EdgeInsets.all(10),',
+            '      decoration: BoxDecoration(',
+            '        color: const Color(0xFF1A1A2E),',
+            '        borderRadius: BorderRadius.circular(6),',
+            '        border: Border.all(color: const Color(0xFF2D2D2D)),',
+            '      ),',
+            '      child: Column(',
+            '        crossAxisAlignment: CrossAxisAlignment.start,',
+            '        mainAxisSize: MainAxisSize.min,',
+            '        children: [',
+            "          const Text('Portal Sign In', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),",
+            '          const SizedBox(height: 8),',
+            "          _credField(_userCtrl, 'Username'),",
+            '          const SizedBox(height: 6),',
+            "          _credField(_passCtrl, 'Password', obscure: true),",
+            '          const SizedBox(height: 6),',
+            "          _credField(_totpCtrl, 'TOTP code (if enabled)'),",
+            '          if (_authError.isNotEmpty) ...[',
+            '            const SizedBox(height: 6),',
+            '            Text(_authError, style: const TextStyle(fontSize: 11, color: Color(0xFFEF4444))),',
+            '          ],',
+            '          const SizedBox(height: 8),',
+            '          SizedBox(',
+            '            width: double.infinity,',
+            '            child: ElevatedButton(',
+            '              onPressed: _authing ? null : _auth,',
+            '              style: ElevatedButton.styleFrom(',
+            '                backgroundColor: const Color(0xFF6366F1),',
+            '                foregroundColor: Colors.white,',
+            '                padding: const EdgeInsets.symmetric(vertical: 8),',
+            '                minimumSize: Size.zero,',
+            '                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),',
+            '                textStyle: const TextStyle(fontSize: 12),',
+            '              ),',
+            "              child: Text(_authing ? 'Signing in...' : 'Sign in'),",
+            '            ),',
+            '          ),',
+            '        ],',
+            '      ),',
+            '    );',
+            '  }',
+            '',
+            '  Widget _credField(TextEditingController ctrl, String hint, {bool obscure = false}) {',
+            '    return TextField(',
+            '      controller: ctrl,',
+            '      obscureText: obscure,',
+            '      onSubmitted: (_) => _auth(),',
+            '      style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '      decoration: InputDecoration(',
+            '        hintText: hint,',
+            '        hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),',
+            '        filled: true,',
+            '        fillColor: const Color(0xFF0F0F1A),',
+            '        isDense: true,',
+            '        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),',
+            '        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2D2D2D))),',
+            '        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF6366F1))),',
+            '      ),',
+            '    );',
+            '  }',
+            '',
+            '  Widget _buildNotification(BuildContext ctx) {',
+            '    return Container(',
+            '      padding: const EdgeInsets.all(10),',
+            '      decoration: BoxDecoration(',
+            '        color: const Color(0xFF1E3A2E),',
+            '        borderRadius: BorderRadius.circular(6),',
+            '        border: Border.all(color: const Color(0xFF22C55E)),',
+            '      ),',
+            '      child: Row(',
+            '        children: [',
+            '          const Icon(Icons.computer, color: Color(0xFF22C55E), size: 16),',
+            '          const SizedBox(width: 8),',
+            '          Expanded(child: Text(_pendingLabel,',
+            '            style: const TextStyle(fontSize: 12, color: Color(0xFFF1F5F9)),',
+            '            overflow: TextOverflow.ellipsis,',
+            '          )),',
+            '          const SizedBox(width: 8),',
+            '          ElevatedButton(',
+            '            onPressed: () => _connect(ctx),',
+            '            style: ElevatedButton.styleFrom(',
+            '              backgroundColor: const Color(0xFF22C55E),',
+            '              foregroundColor: Colors.white,',
+            '              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),',
+            '              minimumSize: Size.zero,',
+            '              tapTargetSize: MaterialTapTargetSize.shrinkWrap,',
+            '              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),',
+            '              textStyle: const TextStyle(fontSize: 11),',
+            '            ),',
+            "            child: const Text('Connect'),",
+            '          ),',
+            '        ],',
+            '      ),',
+            '    );',
+            '  }',
+            '}'
+          ) -join "`n"
+
+          $c = $c + $cls
+          $c | Set-Content $f -Encoding utf8
+          Write-Host "Injected _FsPortalWidget (portal_client_token + /api/portal/auth)"
+
+      # ── Settings tabs: General + About only ──────────────────────────────
+      - name: Configure settings tabs (General, About)
+        shell: pwsh
+        run: |
           $f = "flutter\lib\desktop\pages\desktop_setting_page.dart"
           $c = Get-Content $f -Raw
           $before = $c
@@ -532,29 +745,12 @@ jobs:
           }
           $c | Set-Content $f -Encoding utf8
           if ($c -eq $before) {
-            Write-Host "Warning: tabKeys pattern not matched in desktop_setting_page.dart — tabs unchanged"
+            Write-Host "Warning: tabKeys pattern not matched — tabs unchanged"
           } else {
-            Write-Host "desktop_setting_page.dart: settings tabs reduced to General + About"
+            Write-Host "desktop_setting_page.dart: settings tabs → General, About"
           }
 
-      # ── Window size ───────────────────────────────────────────────────────────
-      - name: Shrink default window width
-        shell: pwsh
-        run: |
-          $f = "flutter\lib\common.dart"
-          $c = Get-Content $f -Raw
-          $before = $c
-          # Default main window is 1280x720 — shrink to 500x600 to fit our custom info panel.
-          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )1280', '${1}500'
-          $c = $c -replace '(\(isDesktop \|\| isWebDesktop\) \? )720',  '${1}600'
-          $c | Set-Content $f -Encoding utf8
-          if ($c -eq $before) {
-            Write-Host "Warning: window size patterns not matched — skipping"
-          } else {
-            Write-Host "common.dart: default window size 1280x720 → 500x600"
-          }
-
-      # ── Build ─────────────────────────────────────────────────────────────────
+      # ── Build ─────────────────────────────────────────────────────────────
       - name: Build RustDesk (Flutter + Rust)
         run: python .\build.py --portable --hwcodec --flutter --vram
         env:
@@ -562,15 +758,11 @@ jobs:
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
           LIBCLANG_PATH: C:\llvm\bin
 
-      # ── Collect and rename output ─────────────────────────────────────────────
+      # ── Collect and rename output ─────────────────────────────────────────
       - name: Collect output exe
         shell: pwsh
         run: |
-          Write-Host "=== Build outputs ==="
-          Get-ChildItem "*.exe" -ErrorAction SilentlyContinue | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
-
-          # Prefer portable; fall back to installer (both contain the full app)
-          $src = $null
+          $src  = $null
           $kind = ""
 
           $portable = Get-ChildItem "rustdesk_portable.exe" -ErrorAction SilentlyContinue
@@ -581,23 +773,22 @@ jobs:
             $installer = Get-ChildItem "rustdesk-*-install.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($installer) {
               $src  = $installer.FullName
-              $kind = "installer (portable build failed — deploy with /S for silent install)"
+              $kind = "installer"
             }
           }
 
           if ($src) {
-            Copy-Item $src "Fred_the_IT_Guy.exe" -Force
-            $mb = [math]::Round((Get-Item "Fred_the_IT_Guy.exe").Length/1MB, 1)
-            Write-Host "Collected Fred_the_IT_Guy.exe ($mb MB) [$kind]"
+            Copy-Item $src "Fred_Portal.exe" -Force
+            $mb = [math]::Round((Get-Item "Fred_Portal.exe").Length/1MB, 1)
+            Write-Host "Collected Fred_Portal.exe ($mb MB) [$kind]"
           } else {
             Write-Error "No output exe found — check build logs above"
           }
 
-      # ── Upload artifact ───────────────────────────────────────────────────────
-      - name: Upload Fred_the_IT_Guy.exe
+      # ── Upload artifact ───────────────────────────────────────────────────
+      - name: Upload Fred_Portal.exe
         uses: actions/upload-artifact@v4
         with:
-          name: Fred_the_IT_Guy
-          path: Fred_the_IT_Guy.exe
+          name: Fred_Portal
+          path: Fred_Portal.exe
           retention-days: 90
-          if-no-files-found: error
