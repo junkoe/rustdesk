@@ -351,11 +351,21 @@ jobs:
             # for exactly this path to set the shortcut / registry DisplayIcon.
             New-Item -ItemType Directory -Force -Path "flutter\assets" | Out-Null
             Copy-Item "assets\app_icon.ico" "flutter\assets\icon.ico" -Force
-            $pubspec = Get-Content "flutter\pubspec.yaml" -Raw
-            if ($pubspec -notmatch 'icon\.ico') {
-              $pubspec = $pubspec -replace '(  assets:)', "$1`n    - assets/icon.ico"
-              $pubspec | Set-Content "flutter\pubspec.yaml" -Encoding utf8
-              Write-Host "Icon: added assets/icon.ico entry to pubspec.yaml"
+            $lines = Get-Content "flutter\pubspec.yaml"
+            if (($lines | Select-String 'assets/icon\.ico').Count -eq 0) {
+              $out = [System.Collections.Generic.List[string]]::new()
+              $inFlutter = $false; $added = $false
+              foreach ($ln in $lines) {
+                if ($ln -match '^flutter:') { $inFlutter = $true }
+                elseif ($ln -match '^\S') { $inFlutter = $false }
+                if ($inFlutter -and !$added -and $ln -match '^\s+assets:\s*$') {
+                  $out.Add($ln); $out.Add("    - assets/icon.ico"); $added = $true; continue
+                }
+                $out.Add($ln)
+              }
+              Set-Content "flutter\pubspec.yaml" -Value $out -Encoding utf8
+              if ($added) { Write-Host "Icon: added assets/icon.ico entry to pubspec.yaml" }
+              else { Write-Host "Warning: flutter.assets section not found — pubspec.yaml unchanged" }
             }
             Write-Host "Icon: replaced (Flutter + portable launcher + Flutter asset for Install)"
           } else {
