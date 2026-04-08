@@ -584,18 +584,16 @@ jobs:
           if (Test-Path "assets\app_icon.ico") {
             Copy-Item "assets\app_icon.ico" "flutter\windows\runner\resources\app_icon.ico" -Force
             Copy-Item "assets\app_icon.ico" "res\icon.ico" -Force
-            # Replace all ICO assets in flutter\assets\ so tray_manager loads our icon at runtime.
-            # The system tray / taskbar icon when running comes from tray_manager loading
-            # data\flutter_assets\logo.ico (or similar) at startup — not from the embedded resource.
-            if (Test-Path "flutter\assets") {
-              Get-ChildItem "flutter\assets\*.ico" -ErrorAction SilentlyContinue | ForEach-Object {
-                Copy-Item "assets\app_icon.ico" $_.FullName -Force
-                Write-Host "Asset ICO replaced: $($_.Name)"
-              }
-              # Always write logo.ico — this is what tray_manager defaults to on Windows
-              Copy-Item "assets\app_icon.ico" "flutter\assets\logo.ico" -Force
-              Write-Host "flutter\assets\logo.ico: replaced (tray icon)"
+            # System tray icon — RustDesk trayManager.setIcon() uses assets/logo.ico at runtime.
+            # The embedded exe resource (app_icon.ico above) only controls the file/shortcut icon;
+            # the running taskbar/tray icon comes from data\flutter_assets\logo.ico on disk.
+            New-Item -ItemType Directory -Force -Path "flutter\assets" | Out-Null
+            Get-ChildItem "flutter\assets\*.ico" -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item "assets\app_icon.ico" $_.FullName -Force
+              Write-Host "Asset ICO replaced: $($_.Name)"
             }
+            Copy-Item "assets\app_icon.ico" "flutter\assets\logo.ico" -Force
+            Write-Host "flutter\assets\logo.ico: replaced (tray icon)"
             Write-Host "Icon: replaced"
           }
           if (Test-Path "assets\polished_logo.svg") {
