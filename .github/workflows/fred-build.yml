@@ -390,22 +390,39 @@ jobs:
           }
 
           # 6. Force system tray icon — patch whatever .ico path RustDesk uses in setIcon() to assets/logo.ico
-          # trayManager.setIcon() / windowManager.setIcon() may reference a different filename depending on
-          # which fork/version is in use. Belt-and-suspenders: scan all Dart files and redirect any
-          # setIcon call that references an .ico file so it always loads our bundled logo.ico.
+          # Note: if the fork already uses 'assets/logo.ico', step 4 already replaced the file and no
+          # Dart patch is needed. Log all setIcon/trayManager references so we can verify the pattern.
           $patched = 0
+          $foundRefs = 0
           Get-ChildItem -Path "flutter\lib" -Recurse -Filter "*.dart" | ForEach-Object {
-            $c = Get-Content $_.FullName -Raw
+            $dartFile = $_
+            $c = Get-Content $dartFile.FullName -Raw
             $before = $c
+
+            # Log all setIcon / trayManager lines for diagnostics
+            (Select-String -Path $dartFile.FullName -Pattern "setIcon|trayManager" -AllMatches) |
+              ForEach-Object { Write-Host "  [$($dartFile.Name):$($_.LineNumber)] $($_.Line.Trim())"; $foundRefs++ }
+
+            # Pattern A: simple single-line  setIcon('something.ico')
             $c = $c -replace "setIcon\s*\(\s*'[^']*\.ico'\s*\)", "setIcon('assets/logo.ico')"
             $c = $c -replace 'setIcon\s*\(\s*"[^"]*\.ico"\s*\)', "setIcon('assets/logo.ico')"
+            # Pattern B: ternary  setIcon(Platform.isWindows ? '*.ico' : '*.png')
+            $c = $c -replace "(?s)setIcon\s*\(\s*Platform\.isWindows\s*\?\s*'[^']*\.ico'[^)]*\)", "setIcon('assets/logo.ico')"
+            $c = $c -replace '(?s)setIcon\s*\(\s*Platform\.isWindows\s*\?\s*"[^"]*\.ico"[^)]*\)', "setIcon('assets/logo.ico')"
+
             if ($c -ne $before) {
-              $c | Set-Content $_.FullName -Encoding utf8
-              Write-Host "Tray icon patched in: $($_.Name)"
+              $c | Set-Content $dartFile.FullName -Encoding utf8
+              Write-Host "Tray icon patched in: $($dartFile.Name)"
               $patched++
             }
           }
-          if ($patched -eq 0) { Write-Host "Warning: no setIcon(.ico) call found in flutter\lib — tray icon may not update" }
+          if ($foundRefs -eq 0) {
+            Write-Host "Note: no setIcon/trayManager references found in flutter\lib — fork likely sets tray icon natively or already uses assets/logo.ico (step 4 handles it)"
+          } elseif ($patched -eq 0) {
+            Write-Host "Note: trayManager/setIcon references found (see above) but no .ico path needed patching — assets/logo.ico from step 4 should be correct"
+          } else {
+            Write-Host "Tray icon: $patched file(s) patched"
+          }
 
       # ── Restrictions: incoming-only + lock local settings ────────────────────
       - name: Apply restrictions (incoming-only, lock settings)
